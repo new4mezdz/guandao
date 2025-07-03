@@ -1,72 +1,143 @@
-import matplotlib
-matplotlib.use('TkAgg')  # 需在 plt 导入前设置后端
-matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 解决中文显示
-matplotlib.rcParams['axes.unicode_minus'] = False   # 解决负号显示问题
-
+import sqlite3
 import networkx as nx
-import matplotlib.pyplot as plt
-import pandas as pd  # 导入 pandas
+import plotly.graph_objs as go
+import plotly.io as pio
+from isolate_leakage import isolate_leakage
 
-# 读取CSV文件（修改为你实际的文件路径）
-edges_df = pd.read_csv(r"C:\Users\张鼎佐\Desktop\edges.csv")
+# 设置 plotly 默认渲染器为浏览器
+pio.renderers.default = "browser"
 
-# 创建有向图
+# 用户输入
+leak_pipe_id = input("请输入泄漏管道ID：").strip()
+leak_type = input("请输入泄漏类型（普通漏损/爆管）：").strip()
+fail_valve_id = input("请输入失效阀门ID（或无）：").strip()
+
+# 调用算法
+result = isolate_leakage(leak_pipe_id, leak_type, fail_valve_id)
+
+# 输出结果
+print("\n🔷 测试结果")
+print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
+print("➡️ 失效阀门:", result.get("lost_valves"))
+print("➡️ 是否可隔离:", result.get("isolatable"))
+print("➡️ cut 边:", result.get("cut_edges"))
+print("➡️ 建议:", result.get("recommendation"))
+
+# 连接数据库
+conn = sqlite3.connect("my_database.db")
+c = conn.cursor()
+
+# 读取 building_nodes
+c.execute("SELECT Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y FROM building_nodes")
+nodes = c.fetchall()
+
+# 读取 pipes
+c.execute("SELECT Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status FROM pipes")
+pipes = c.fetchall()
+
+# 读取 valves
+c.execute("SELECT Valve_ID, Controlled_Pipe_ID, Status FROM valves")
+valves = c.fetchall()
+
+conn.close()
+
+# 创建 NetworkX 有向图
 G = nx.DiGraph()
+for node in nodes:
+    node_id, name, node_type, level, x, y = node
+    G.add_node(node_id, name=name, type=node_type, level=level, pos=(x, y))
 
-# 添加节点和边到图中，确保容量被正确设置
-for _, row in edges_df.iterrows():
-    G.add_edge(row["source"], row["target"], capacity=row["capacity"])
+# 添加边
+for pipe in pipes:
+    pipe_id, start, end, diameter, status = pipe
+    G.add_edge(start, end,
+               pipe_id=pipe_id,
+               diameter=diameter,
+               status=status,
+               capacity=diameter**2)
 
-# 打印所有节点，确认源节点和汇节点
-print("图中的所有节点:", G.nodes())
+# 使用坐标作为布局
+pos = {node[0]: (node[4], node[5]) for node in nodes}
 
-# 获取用户输入的多个节点对
-pairs_input = input("请输入多个节点对（例如 V1-U1,V2-U2）：")
-pairs_list = pairs_input.split(",")  # 分割多个节点对
+# ✅ 生成需要关闭的管道列表
+need_close_pipes = []
 
-# 绘制拓扑结构
-plt.figure(figsize=(8, 6))
-pos = nx.spring_layout(G, seed=42)  # 使用spring布局，并设置种子确保布局一致
+if leak_type == "爆管":
+    need_close_pipes = [v[1] for v in valves if v[0] in result.get("need_close_valves", [])]
+elif leak_type == "普通漏损":
+    cut_edges = result.get("cut_edges", [])
+    for u, v in cut_edges:
+        if G.has_edge(u, v):
+            need_close_pipes.append(G[u][v]['pipe_id'])
 
-# 绘制图的节点和边
-nx.draw(G, pos, with_labels=True, node_size=2000, node_color="lightblue", font_size=10, font_weight="bold")
+# 去重 + strip + upper
+need_close_pipes = list(set([p.strip().upper() for p in need_close_pipes]))
 
-# 显示权重（管道权重）
-edge_labels = {(u, v): d["capacity"] for u, v, d in G.edges(data=True)}
-nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+# ✅ debug
+print("🔴 最终 need_close_pipes:", need_close_pipes)
 
-# 遍历每一对节点，计算最短路径并标记
-for pair in pairs_list:
-    source, target = pair.split("-")  # 分割成源节点和目标节点
+# 生成 edge traces，每条边单独 trace 以支持不同颜色
+edge_traces = []
+for edge in G.edges(data=True):
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    pipe_id = edge[2]['pipe_id'].strip().upper()
+    color = 'red' if pipe_id in need_close_pipes else '#888'
+    width = 6 if color == 'red' else 2
 
-    # 确保节点在图中
-    if source in G.nodes() and target in G.nodes():
-        # 计算最短路径
-        shortest_path = nx.shortest_path(G, source=source, target=target, weight="capacity")
-        print(f"{source} 到 {target} 的最短路径是:", shortest_path)
+    trace = go.Scatter(
+        x=[x0, x1],
+        y=[y0, y1],
+        line=dict(width=width, color=color),
+        hoverinfo='text',
+        text=[pipe_id],
+        mode='lines'
+    )
+    edge_traces.append(trace)
 
-        # 标记最短路径的边为红色
-        shortest_path_edges = [(shortest_path[i], shortest_path[i+1]) for i in range(len(shortest_path)-1)]
-        nx.draw_networkx_edges(G, pos, edgelist=shortest_path_edges, edge_color="red", width=2)
+# 创建节点 trace
+node_trace = go.Scatter(
+    x=[], y=[], text=[],
+    mode='markers+text',
+    hoverinfo='text',
+    textposition="middle right",
+    marker=dict(
+        showscale=False,
+        color=[],
+        size=20,
+        line=dict(width=2))
+)
 
-        # 计算最小割（关闭阀门）
-        flow_value, partition = nx.minimum_cut(G, source, target)
-        reachable, non_reachable = partition
-        cut_edges = []
+for node in G.nodes(data=True):
+    x, y = pos[node[0]]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    level = node[1]['level']
+    color = {'A': 'red', 'B': 'orange', 'C': 'green'}.get(level, 'gray')
+    node_trace['marker']['color'] += (color,)
+    name = node[1]['name']
+    node_trace['text'] += (node[0],)
 
-        # 遍历最小割中的边，找出需要关闭的阀门
-        for u, v in G.edges():
-            if u in reachable and v in non_reachable:
-                cut_edges.append((u, v))
+# 生成 plotly figure
+fig = go.Figure(data=edge_traces + [node_trace],
+                layout=go.Layout(
+                    title='🏞️ 测试结果网络图（需关闭管道标红加粗）',
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    shapes=[
+                        dict(
+                            type="line",
+                            x0=pos[edge[0]][0], y0=pos[edge[0]][1],
+                            x1=pos[edge[1]][0], y1=pos[edge[1]][1],
+                            line=dict(color="blue", width=1),
+                            layer="above"
+                        )
+                        for edge in G.edges()
+                    ]
+                )
+               )
 
-        # 输出关闭的阀门
-        print(f"需要关闭的阀门（切割的边）: {cut_edges}")
-
-        # 在图上标记需要关闭的阀门
-        nx.draw_networkx_edges(G, pos, edgelist=cut_edges, edge_color="green", width=2, style="dashed")
-    else:
-        print(f"输入的节点对 {source}-{target} 中有节点不在图中，请检查节点名称")
-
-# 显示标题
-plt.title(f"多对最短路径图与关闭阀门")
-plt.show()
+fig.show()
