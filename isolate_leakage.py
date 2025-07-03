@@ -3,7 +3,7 @@ import networkx as nx
 
 def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
     """
-    供水隔离算法
+    供水隔离算法（支持超级源与超级汇）
     输入:
         leak_pipe_id: 漏损管道ID
         leak_type: "普通漏损" / "爆管"
@@ -111,17 +111,26 @@ def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
                         data['capacity'] = float('inf')
                     data['valve_id'] = valve_id
 
-        source = "N000"
-        sink = leak_pipe[2]
+        # 添加超级源
+        G.add_node('super_source')
+        G.add_edge('super_source', 'N000', capacity=float('inf'))
+        G.add_edge('super_source', 'N001', capacity=float('inf'))
+        G.add_edge('super_source', 'N100', capacity=float('inf'))  # 添加测试源
 
-        cut_value, partition = nx.minimum_cut(G, source, sink, capacity='capacity')
+        ### 🚀 添加超级汇 ###
+        G.add_node('super_sink')
+        sink = leak_pipe[2]
+        G.add_edge(sink, 'super_sink', capacity=float('inf'))
+
+        # 计算最小割（super_source → super_sink）
+        cut_value, partition = nx.minimum_cut(G, 'super_source', 'super_sink', capacity='capacity')
         reachable, non_reachable = partition
 
         cut_edges = []
         need_close_valves = []
         for u in reachable:
             for v in G[u]:
-                if v in non_reachable:
+                if v in non_reachable and v != 'super_sink':  # 排除超级汇
                     cut_edges.append((u, v))
                     valve_id = G[u][v].get('valve_id')
                     if valve_id:
@@ -142,6 +151,7 @@ def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
     # 🔷 无效 leak_type
     else:
         return {"error": "leak_type 无效"}
+
 
 # ✅ **测试调用示例**
 if __name__ == "__main__":

@@ -8,20 +8,11 @@ from isolate_leakage import isolate_leakage
 pio.renderers.default = "browser"
 
 # 用户输入
-leak_pipe_id = input("请输入泄漏管道ID：").strip()
+leak_pipe_ids_input = input("请输入泄漏管道ID（可输入多个，用英文逗号分隔）：").strip()
+leak_pipe_ids = [pid.strip() for pid in leak_pipe_ids_input.split(',')]
+
 leak_type = input("请输入泄漏类型（普通漏损/爆管）：").strip()
 fail_valve_id = input("请输入失效阀门ID（或无）：").strip()
-
-# 调用算法
-result = isolate_leakage(leak_pipe_id, leak_type, fail_valve_id)
-
-# 输出结果
-print("\n🔷 测试结果")
-print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
-print("➡️ 失效阀门:", result.get("lost_valves"))
-print("➡️ 是否可隔离:", result.get("isolatable"))
-print("➡️ cut 边:", result.get("cut_edges"))
-print("➡️ 建议:", result.get("recommendation"))
 
 # 连接数据库
 conn = sqlite3.connect("my_database.db")
@@ -59,22 +50,33 @@ for pipe in pipes:
 # 使用坐标作为布局
 pos = {node[0]: (node[4], node[5]) for node in nodes}
 
-# ✅ 生成需要关闭的管道列表
+# ✅ 生成需要关闭的管道列表（整合多个泄漏结果）
 need_close_pipes = []
 
-if leak_type == "爆管":
-    need_close_pipes = [v[1] for v in valves if v[0] in result.get("need_close_valves", [])]
-elif leak_type == "普通漏损":
-    cut_edges = result.get("cut_edges", [])
-    for u, v in cut_edges:
-        if G.has_edge(u, v):
-            need_close_pipes.append(G[u][v]['pipe_id'])
+for leak_pipe_id in leak_pipe_ids:
+    result = isolate_leakage(leak_pipe_id, leak_type, fail_valve_id)
+
+    print(f"\n🔷 测试结果【{leak_pipe_id}】")
+    print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
+    print("➡️ 失效阀门:", result.get("lost_valves"))
+    print("➡️ 是否可隔离:", result.get("isolatable"))
+    print("➡️ cut 边:", result.get("cut_edges"))
+    print("➡️ 建议:", result.get("recommendation"))
+
+    # 根据 leak_type 更新 need_close_pipes
+    if leak_type == "爆管":
+        need_close_pipes.extend([v[1] for v in valves if v[0] in result.get("need_close_valves", [])])
+    elif leak_type == "普通漏损":
+        cut_edges = result.get("cut_edges", [])
+        for u, v in cut_edges:
+            if G.has_edge(u, v):
+                need_close_pipes.append(G[u][v]['pipe_id'])
 
 # 去重 + strip + upper
 need_close_pipes = list(set([p.strip().upper() for p in need_close_pipes]))
 
 # ✅ debug
-print("🔴 最终 need_close_pipes:", need_close_pipes)
+print("\n🔴 最终需要关闭的管道列表（多漏损整合）:", need_close_pipes)
 
 # 生成 edge traces，每条边单独 trace 以支持不同颜色
 edge_traces = []
@@ -121,23 +123,32 @@ for node in G.nodes(data=True):
 # 生成 plotly figure
 fig = go.Figure(data=edge_traces + [node_trace],
                 layout=go.Layout(
-                    title='🏞️ 测试结果网络图（需关闭管道标红加粗）',
+                    title='🏞️ 测试结果网络图（需关闭管道标红加粗，箭头表示方向）',
                     showlegend=False,
                     hovermode='closest',
                     margin=dict(b=20, l=5, r=5, t=40),
                     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    shapes=[
-                        dict(
-                            type="line",
-                            x0=pos[edge[0]][0], y0=pos[edge[0]][1],
-                            x1=pos[edge[1]][0], y1=pos[edge[1]][1],
-                            line=dict(color="blue", width=1),
-                            layer="above"
-                        )
-                        for edge in G.edges()
-                    ]
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
                 )
                )
+
+# 添加箭头 annotation
+for edge in G.edges(data=True):
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    pipe_id = edge[2]['pipe_id'].strip().upper()
+    color = 'red' if pipe_id in need_close_pipes else 'blue'
+
+    fig.add_annotation(
+        x=x1, y=y1,
+        ax=x0, ay=y0,
+        xref="x", yref="y",
+        axref="x", ayref="y",
+        showarrow=True,
+        arrowhead=3,
+        arrowsize=1,
+        arrowwidth=2,
+        arrowcolor=color
+    )
 
 fig.show()
