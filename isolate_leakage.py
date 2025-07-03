@@ -3,7 +3,7 @@ import networkx as nx
 
 def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
     """
-    供水隔离算法（支持超级源与超级汇）
+    供水隔离算法（支持超级源/汇 + 等级惩罚）
     输入:
         leak_pipe_id: 漏损管道ID
         leak_type: "普通漏损" / "爆管"
@@ -17,7 +17,7 @@ def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
     c = conn.cursor()
 
     # 读取 building_nodes
-    c.execute("SELECT Node_ID FROM building_nodes")
+    c.execute("SELECT Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y FROM building_nodes")
     nodes = c.fetchall()
 
     # 读取 pipes
@@ -90,19 +90,39 @@ def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
     elif leak_type == "普通漏损":
         G = nx.DiGraph()
 
+        # 添加节点
         for node in nodes:
             node_id = node[0]
             G.add_node(node_id)
 
+        # 添加边，计算 capacity 时引入等级惩罚
         for pipe in pipes:
             pipe_id, start, end, diameter, status = pipe
-            capacity = 10 if pipe_id == leak_pipe_id else diameter ** 2
+
+            # 获取 end_node 的等级
+            end_level = next((n[3] for n in nodes if n[0]==end), 'C')
+
+            # 计算基础 capacity
+            capacity = diameter ** 2
+
+            # 应用等级惩罚
+            if end_level == 'A':
+                capacity *= 10000
+            elif end_level == 'B':
+                capacity *= 100
+            # C 级保持原值
+
+            # 泄漏管道保持最小 capacity 以确保切断
+            if pipe_id == leak_pipe_id:
+                capacity = 10
+
             G.add_edge(start, end,
                        pipe_id=pipe_id,
                        diameter=diameter,
                        status=status,
                        capacity=capacity)
 
+        # 阀门状态对 capacity 的影响
         for valve in valves:
             valve_id, controlled_pipe_id, status = valve
             for u, v, data in G.edges(data=True):
@@ -111,11 +131,12 @@ def isolate_leakage(leak_pipe_id, leak_type, fail_valve_id=None):
                         data['capacity'] = float('inf')
                     data['valve_id'] = valve_id
 
-        # 添加超级源
+        ### 🚀 添加超级源 ###
         G.add_node('super_source')
-        G.add_edge('super_source', 'N000', capacity=float('inf'))
-        G.add_edge('super_source', 'N001', capacity=float('inf'))
-        G.add_edge('super_source', 'N100', capacity=float('inf'))  # 添加测试源
+        # 添加 N000, N001, N100 (测试源) 为源头
+        for src in ['N000', 'N001', 'N100']:
+            if src in G.nodes():
+                G.add_edge('super_source', src, capacity=float('inf'))
 
         ### 🚀 添加超级汇 ###
         G.add_node('super_sink')
