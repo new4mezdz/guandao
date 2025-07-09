@@ -14,6 +14,17 @@ leak_pipe_ids = [pid.strip() for pid in leak_pipe_ids_input.split(',')]
 leak_type = input("请输入泄漏类型（普通漏损/爆管）：").strip()
 fail_valve_id = input("请输入失效阀门ID（或无）：").strip()
 
+# 调用算法
+result = isolate_leakage(leak_pipe_ids, leak_type, fail_valve_id)
+
+# 输出结果
+print("\n🔷 测试结果（多漏损一次最小割）")
+print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
+print("➡️ 失效阀门:", result.get("lost_valves"))
+print("➡️ 是否可隔离:", result.get("isolatable"))
+print("➡️ cut 边:", result.get("cut_edges"))
+print("➡️ 建议:", result.get("recommendation"))
+
 # 连接数据库
 conn = sqlite3.connect("my_database.db")
 c = conn.cursor()
@@ -50,33 +61,18 @@ for pipe in pipes:
 # 使用坐标作为布局
 pos = {node[0]: (node[4], node[5]) for node in nodes}
 
-# ✅ 生成需要关闭的管道列表（整合多个泄漏结果）
+# ✅ 生成需要关闭的管道列表
 need_close_pipes = []
-
-for leak_pipe_id in leak_pipe_ids:
-    result = isolate_leakage(leak_pipe_id, leak_type, fail_valve_id)
-
-    print(f"\n🔷 测试结果【{leak_pipe_id}】")
-    print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
-    print("➡️ 失效阀门:", result.get("lost_valves"))
-    print("➡️ 是否可隔离:", result.get("isolatable"))
-    print("➡️ cut 边:", result.get("cut_edges"))
-    print("➡️ 建议:", result.get("recommendation"))
-
-    # 根据 leak_type 更新 need_close_pipes
-    if leak_type == "爆管":
-        need_close_pipes.extend([v[1] for v in valves if v[0] in result.get("need_close_valves", [])])
-    elif leak_type == "普通漏损":
-        cut_edges = result.get("cut_edges", [])
-        for u, v in cut_edges:
-            if G.has_edge(u, v):
-                need_close_pipes.append(G[u][v]['pipe_id'])
+cut_edges = result.get("cut_edges", [])
+for u, v in cut_edges:
+    if G.has_edge(u, v):
+        need_close_pipes.append(G[u][v]['pipe_id'])
 
 # 去重 + strip + upper
 need_close_pipes = list(set([p.strip().upper() for p in need_close_pipes]))
 
 # ✅ debug
-print("\n🔴 最终需要关闭的管道列表（多漏损整合）:", need_close_pipes)
+print("\n🔴 最终需要关闭的管道列表:", need_close_pipes)
 
 # 生成 edge traces，每条边单独 trace 以支持不同颜色
 edge_traces = []
@@ -123,7 +119,7 @@ for node in G.nodes(data=True):
 # 生成 plotly figure
 fig = go.Figure(data=edge_traces + [node_trace],
                 layout=go.Layout(
-                    title='🏞️ 测试结果网络图（需关闭管道标红加粗，箭头表示方向）',
+                    title='🏞️ 多漏损一次最小割隔离结果（需关闭管道标红加粗，箭头表示方向）',
                     showlegend=False,
                     hovermode='closest',
                     margin=dict(b=20, l=5, r=5, t=40),
