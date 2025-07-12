@@ -9,10 +9,19 @@ pio.renderers.default = "browser"
 
 # 用户输入
 leak_pipe_ids_input = input("请输入泄漏管道ID（可输入多个，用英文逗号分隔）：").strip()
-leak_pipe_ids = [pid.strip() for pid in leak_pipe_ids_input.split(',')]
+leak_pipe_ids = [pid.strip().upper() for pid in leak_pipe_ids_input.split(',')]
 
-leak_type = input("请输入泄漏类型（普通漏损/爆管）：").strip()
-fail_valve_id = input("请输入失效阀门ID（或无）：").strip()
+leak_type_input = input("请输入泄漏类型（普通漏损/爆管 或 1/2）：").strip().lower()
+# 处理泄漏类型输入，支持数字和文字
+if leak_type_input in ['1', '普通漏损']:
+    leak_type = '普通漏损'
+elif leak_type_input in ['2', '爆管']:
+    leak_type = '爆管'
+else:
+    print("❌ 无效的泄漏类型，默认使用'普通漏损'")
+    leak_type = '普通漏损'
+
+fail_valve_id = input("请输入失效阀门ID（或无）：").strip().upper()
 
 # 调用算法
 result = isolate_leakage(leak_pipe_ids, leak_type, fail_valve_id)
@@ -94,27 +103,31 @@ for edge in G.edges(data=True):
     edge_traces.append(trace)
 
 # 创建节点 trace
+node_x = []
+node_y = []
+node_text = []
+node_colors = []
+
+for node in G.nodes(data=True):
+    x, y = pos[node[0]]
+    node_x.append(x)
+    node_y.append(y)
+    level = node[1]['level']
+    color = {'A': 'red', 'B': 'orange', 'C': 'green'}.get(level, 'gray')
+    node_colors.append(color)
+    node_text.append(node[0])
+
 node_trace = go.Scatter(
-    x=[], y=[], text=[],
+    x=node_x, y=node_y, text=node_text,
     mode='markers+text',
     hoverinfo='text',
     textposition="middle right",
     marker=dict(
         showscale=False,
-        color=[],
+        color=node_colors,
         size=20,
         line=dict(width=2))
 )
-
-for node in G.nodes(data=True):
-    x, y = pos[node[0]]
-    node_trace['x'] += (x,)
-    node_trace['y'] += (y,)
-    level = node[1]['level']
-    color = {'A': 'red', 'B': 'orange', 'C': 'green'}.get(level, 'gray')
-    node_trace['marker']['color'] += (color,)
-    name = node[1]['name']
-    node_trace['text'] += (node[0],)
 
 # 生成 plotly figure
 fig = go.Figure(data=edge_traces + [node_trace],
