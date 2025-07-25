@@ -1,163 +1,243 @@
+# debug_test.py - 调试版本，会输出详细信息
 import sqlite3
-import networkx as nx
-import plotly.graph_objs as go
-import plotly.io as pio
+import matplotlib
+
+matplotlib.use('Agg')  # 保存文件模式
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
 from isolate_leakage import isolate_leakage
+import time
+import os
 
-# 设置 plotly 默认渲染器为浏览器
-pio.renderers.default = "browser"
 
-# 用户输入
-leak_pipe_ids_input = input("请输入泄漏管道ID（可输入多个，用英文逗号分隔）：").strip()
-leak_pipe_ids = [pid.strip().upper() for pid in leak_pipe_ids_input.split(',')]
+def debug_database():
+    """调试数据库内容"""
+    print("🔍 正在检查数据库内容...")
 
-leak_type_input = input("请输入泄漏类型（普通漏损/爆管 或 1/2）：").strip().lower()
-# 处理泄漏类型输入，支持数字和文字
-if leak_type_input in ['1', '普通漏损']:
-    leak_type = '普通漏损'
-elif leak_type_input in ['2', '爆管']:
-    leak_type = '爆管'
-else:
-    print("❌ 无效的泄漏类型，默认使用'普通漏损'")
-    leak_type = '普通漏损'
+    conn = sqlite3.connect("my_database.db")
+    c = conn.cursor()
 
-fail_valve_id = input("请输入失效阀门ID（或无）：").strip().upper()
+    # 检查节点数据
+    c.execute("SELECT COUNT(*) FROM building_nodes")
+    node_count = c.fetchone()[0]
+    print(f"📊 节点总数: {node_count}")
 
-# 调用算法
-result = isolate_leakage(leak_pipe_ids, leak_type, fail_valve_id)
+    if node_count > 0:
+        c.execute("SELECT Node_ID, Node_Name, Level, Location_X, Location_Y FROM building_nodes LIMIT 5")
+        sample_nodes = c.fetchall()
+        print("📋 节点样本:")
+        for node in sample_nodes:
+            print(f"   {node}")
 
-# 输出结果
-print("\n🔷 测试结果（多漏损一次最小割）")
-print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
-print("➡️ 失效阀门:", result.get("lost_valves"))
-print("➡️ 是否可隔离:", result.get("isolatable"))
-print("➡️ cut 边:", result.get("cut_edges"))
-print("➡️ 建议:", result.get("recommendation"))
+    # 检查管道数据
+    c.execute("SELECT COUNT(*) FROM pipes")
+    pipe_count = c.fetchone()[0]
+    print(f"📊 管道总数: {pipe_count}")
 
-# 连接数据库
-conn = sqlite3.connect("my_database.db")
-c = conn.cursor()
+    if pipe_count > 0:
+        c.execute("SELECT Pipe_ID, Start_Node_ID, End_Node_ID FROM pipes LIMIT 5")
+        sample_pipes = c.fetchall()
+        print("📋 管道样本:")
+        for pipe in sample_pipes:
+            print(f"   {pipe}")
 
-# 读取 building_nodes
-c.execute("SELECT Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y FROM building_nodes")
-nodes = c.fetchall()
+    # 检查坐标范围
+    c.execute("SELECT MIN(Location_X), MAX(Location_X), MIN(Location_Y), MAX(Location_Y) FROM building_nodes")
+    coord_range = c.fetchone()
+    print(f"📍 坐标范围: X({coord_range[0]:.2f} ~ {coord_range[1]:.2f}), Y({coord_range[2]:.2f} ~ {coord_range[3]:.2f})")
 
-# 读取 pipes
-c.execute("SELECT Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status FROM pipes")
-pipes = c.fetchall()
+    conn.close()
+    return node_count > 0 and pipe_count > 0
 
-# 读取 valves
-c.execute("SELECT Valve_ID, Controlled_Pipe_ID, Status FROM valves")
-valves = c.fetchall()
 
-conn.close()
+def create_test_visualization():
+    """创建测试可视化"""
+    print("\n🎨 开始创建可视化...")
 
-# 创建 NetworkX 有向图
-G = nx.DiGraph()
-for node in nodes:
-    node_id, name, node_type, level, x, y = node
-    G.add_node(node_id, name=name, type=node_type, level=level, pos=(x, y))
+    # 读取数据
+    conn = sqlite3.connect("my_database.db")
+    c = conn.cursor()
 
-# 添加边
-for pipe in pipes:
-    pipe_id, start, end, diameter, status = pipe
-    G.add_edge(start, end,
-               pipe_id=pipe_id,
-               diameter=diameter,
-               status=status,
-               capacity=diameter**2)
+    c.execute("SELECT Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y FROM building_nodes")
+    nodes = c.fetchall()
 
-# 使用坐标作为布局
-pos = {node[0]: (node[4], node[5]) for node in nodes}
+    c.execute("SELECT Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status FROM pipes")
+    pipes = c.fetchall()
 
-# ✅ 生成需要关闭的管道列表
-need_close_pipes = []
-cut_edges = result.get("cut_edges", [])
-for u, v in cut_edges:
-    if G.has_edge(u, v):
-        need_close_pipes.append(G[u][v]['pipe_id'])
+    conn.close()
 
-# 去重 + strip + upper
-need_close_pipes = list(set([p.strip().upper() for p in need_close_pipes]))
+    print(f"✅ 读取到 {len(nodes)} 个节点, {len(pipes)} 条管道")
 
-# ✅ debug
-print("\n🔴 最终需要关闭的管道列表:", need_close_pipes)
+    if not nodes or not pipes:
+        print("❌ 数据为空，无法绘图！")
+        return False
 
-# 生成 edge traces，每条边单独 trace 以支持不同颜色
-edge_traces = []
-for edge in G.edges(data=True):
-    x0, y0 = pos[edge[0]]
-    x1, y1 = pos[edge[1]]
-    pipe_id = edge[2]['pipe_id'].strip().upper()
-    color = 'red' if pipe_id in need_close_pipes else '#888'
-    width = 6 if color == 'red' else 2
+    # 创建图形
+    plt.figure(figsize=(12, 8))
+    plt.clf()  # 清除之前的内容
 
-    trace = go.Scatter(
-        x=[x0, x1],
-        y=[y0, y1],
-        line=dict(width=width, color=color),
-        hoverinfo='text',
-        text=[pipe_id],
-        mode='lines'
-    )
-    edge_traces.append(trace)
+    # 节点位置
+    pos = {}
+    x_coords = []
+    y_coords = []
+    node_colors = []
+    node_labels = []
 
-# 创建节点 trace
-node_x = []
-node_y = []
-node_text = []
-node_colors = []
+    color_map = {'A': 'red', 'B': 'orange', 'C': 'lightgreen'}
 
-for node in G.nodes(data=True):
-    x, y = pos[node[0]]
-    node_x.append(x)
-    node_y.append(y)
-    level = node[1]['level']
-    color = {'A': 'red', 'B': 'orange', 'C': 'green'}.get(level, 'gray')
-    node_colors.append(color)
-    node_text.append(node[0])
+    for node in nodes:
+        node_id, name, node_type, level, x, y = node
+        pos[node_id] = (x, y)
+        x_coords.append(x)
+        y_coords.append(y)
+        node_colors.append(color_map.get(level, 'gray'))
+        node_labels.append(node_id)
 
-node_trace = go.Scatter(
-    x=node_x, y=node_y, text=node_text,
-    mode='markers+text',
-    hoverinfo='text',
-    textposition="middle right",
-    marker=dict(
-        showscale=False,
-        color=node_colors,
-        size=20,
-        line=dict(width=2))
-)
+    print(f"📍 节点坐标范围: X({min(x_coords):.2f}~{max(x_coords):.2f}), Y({min(y_coords):.2f}~{max(y_coords):.2f})")
 
-# 生成 plotly figure
-fig = go.Figure(data=edge_traces + [node_trace],
-                layout=go.Layout(
-                    title='🏞️ 多漏损一次最小割隔离结果（需关闭管道标红加粗，箭头表示方向）',
-                    showlegend=False,
-                    hovermode='closest',
-                    margin=dict(b=20, l=5, r=5, t=40),
-                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-                )
-               )
+    # 绘制节点
+    scatter = plt.scatter(x_coords, y_coords, c=node_colors, s=300, alpha=0.8,
+                          zorder=3, edgecolors='black', linewidth=2)
 
-# 添加箭头 annotation
-for edge in G.edges(data=True):
-    x0, y0 = pos[edge[0]]
-    x1, y1 = pos[edge[1]]
-    pipe_id = edge[2]['pipe_id'].strip().upper()
-    color = 'red' if pipe_id in need_close_pipes else 'blue'
+    # 添加节点标签
+    for i, label in enumerate(node_labels):
+        plt.annotate(label, (x_coords[i], y_coords[i]),
+                     xytext=(8, 8), textcoords='offset points',
+                     fontsize=10, ha='left', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
 
-    fig.add_annotation(
-        x=x1, y=y1,
-        ax=x0, ay=y0,
-        xref="x", yref="y",
-        axref="x", ayref="y",
-        showarrow=True,
-        arrowhead=3,
-        arrowsize=1,
-        arrowwidth=2,
-        arrowcolor=color
-    )
+    # 绘制管道
+    pipe_count = 0
+    for pipe in pipes:
+        pipe_id, start, end, diameter, status = pipe
 
-fig.show()
+        if start in pos and end in pos:
+            x0, y0 = pos[start]
+            x1, y1 = pos[end]
+
+            # 绘制简单的线（先不用箭头）
+            plt.plot([x0, x1], [y0, y1], 'b-', linewidth=2, alpha=0.6)
+            pipe_count += 1
+        else:
+            print(f"⚠️ 管道 {pipe_id} 的节点不存在: {start} -> {end}")
+
+    print(f"✅ 成功绘制 {pipe_count} 条管道")
+
+    # 设置图形属性
+    plt.title('供水网络图 - 测试版本', fontsize=14, fontweight='bold')
+    plt.xlabel('X坐标')
+    plt.ylabel('Y坐标')
+    plt.grid(True, alpha=0.3)
+
+    # 添加图例
+    import matplotlib.patches as mpatches
+    red_patch = mpatches.Patch(color='red', label='A级(水厂)')
+    orange_patch = mpatches.Patch(color='orange', label='B级(学校)')
+    green_patch = mpatches.Patch(color='lightgreen', label='C级(住宅)')
+    plt.legend(handles=[red_patch, orange_patch, green_patch], loc='upper right')
+
+    # 设置坐标轴范围
+    plt.xlim(min(x_coords) - 1, max(x_coords) + 1)
+    plt.ylim(min(y_coords) - 1, max(y_coords) + 1)
+
+    plt.tight_layout()
+
+    # 保存图片
+    output_file = f"test_network_{int(time.time())}.png"
+    plt.savefig(output_file, dpi=200, bbox_inches='tight', facecolor='white')
+    plt.close()  # 关闭图形以释放内存
+
+    print(f"📁 测试图片已保存: {output_file}")
+
+    # 检查文件是否创建成功
+    if os.path.exists(output_file) and os.path.getsize(output_file) > 1000:
+        print("✅ 图片文件创建成功！")
+        return True
+    else:
+        print("❌ 图片文件创建失败或文件过小！")
+        return False
+
+
+def main_with_debug():
+    """主函数 - 调试版本"""
+    print("🚀 调试版本 - 漏损隔离测试")
+
+    # 首先检查数据库
+    if not debug_database():
+        print("❌ 数据库检查失败，请先运行 create.py 生成数据")
+        return
+
+    # 创建测试可视化
+    if not create_test_visualization():
+        print("❌ 测试可视化失败")
+        return
+
+    print("\n" + "=" * 50)
+    print("继续进行隔离测试...")
+    print("=" * 50)
+
+    # 用户输入
+    print("请选择漏损类型：\n1. 节点漏损\n2. 管道漏损\n3. 爆管")
+    leak_mode = input("输入数字选择类型：").strip()
+
+    if leak_mode == '1':
+        leak_type = '普通漏损'
+        leak_node = input("请输入漏损节点ID：").strip().upper()
+        leak_node_pairs = []
+        conn = sqlite3.connect("my_database.db")
+        c = conn.cursor()
+        c.execute("SELECT Start_Node_ID FROM pipes WHERE End_Node_ID=?", (leak_node,))
+        starts = c.fetchall()
+        leak_node_pairs = [(s[0], leak_node) for s in starts]
+        conn.close()
+        print(f"自动识别节点漏损相关管道: {leak_node_pairs}")
+        fail_valve_id = input("请输入失效阀门ID（或无）：").strip().upper()
+
+    elif leak_mode == '2':
+        leak_type = '普通漏损'
+        pipe_id = input("请输入漏损管道ID：").strip().upper()
+        conn = sqlite3.connect("my_database.db")
+        c = conn.cursor()
+        c.execute("SELECT Start_Node_ID, End_Node_ID FROM pipes WHERE Pipe_ID=?", (pipe_id,))
+        row = c.fetchone()
+        if not row:
+            print("❌ 未找到该管道！")
+            return
+        start, end = row
+        leak_node_pairs = [(start, end)]
+        fail_valve_id = input("请输入失效阀门ID（或无）：").strip().upper()
+        conn.close()
+
+    elif leak_mode == '3':
+        leak_type = '爆管'
+        pipe_id = input("请输入爆管管道ID：").strip().upper()
+        conn = sqlite3.connect("my_database.db")
+        c = conn.cursor()
+        c.execute("SELECT Start_Node_ID, End_Node_ID FROM pipes WHERE Pipe_ID=?", (pipe_id,))
+        row = c.fetchone()
+        if not row:
+            print("❌ 未找到该管道！")
+            return
+        start, end = row
+        leak_node_pairs = [(start, end)]
+        fail_valve_id = input("请输入失效阀门ID（或无）：").strip().upper()
+        conn.close()
+    else:
+        print("❌ 无效选择，退出。")
+        return
+
+    # 调用隔离算法
+    print(f"\n🔍 开始隔离分析: {leak_node_pairs}, 类型: {leak_type}")
+    result = isolate_leakage(leak_node_pairs, leak_type, fail_valve_id)
+
+    # 输出结果
+    print("\n🔷 隔离结果")
+    print("➡️ 需要关闭的阀门:", result.get("need_close_valves"))
+    print("➡️ 失效阀门:", result.get("lost_valves"))
+    print("➡️ 是否可隔离:", result.get("isolatable"))
+    print("➡️ cut 边:", result.get("cut_edges"))
+    print("➡️ 建议:", result.get("recommendation"))
+
+
+if __name__ == "__main__":
+    main_with_debug()

@@ -1,44 +1,110 @@
 import sqlite3
+import random
+import math
 
-# 连接数据库
+# —— 配置 —— 
+random.seed(42)
+total_nodes = 50
+k = 3  # 最近邻数
+
+# —— 连接数据库 —— 
 conn = sqlite3.connect("my_database.db")
 c = conn.cursor()
-# ✅ 插入“仅关闭 C 级无法隔离，需切断 B 级管道” 测试例子
 
-# building_nodes
-c.executescript("""
-INSERT INTO building_nodes VALUES
-('N500', 'A级源', '水厂', 'A', 50, 0),
-('N501', 'B级用户', '学校', 'B', 51, 0),
-('N502', 'C级用户1', '住宅', 'C', 52, -1),
-('N503', 'C级用户2', '住宅', 'C', 52, 1),
-('N504', '泄漏点', '住宅', 'C', 53, 1);
-""")
+# —— 清空旧数据 —— 
+c.execute("DELETE FROM valves")
+c.execute("DELETE FROM pipes")
+c.execute("DELETE FROM building_nodes")
+print("✅ 已清空旧的 building_nodes, pipes, valves 数据")
 
-# pipes
-c.executescript("""
-INSERT INTO pipes VALUES
-('P500', 'N500', 'N501', 500, '正常'),
-('P501', 'N501', 'N502', 300, '正常'),
-('P502', 'N501', 'N503', 150, '正常'),
-('P503', 'N503', 'N504', 150, '正常'),
-('P504', 'N501', 'N504', 300, '正常');
-""")
+# —— 生成节点 & 随机位置 —— 
+num_A = 2
+num_B = int(0.10 * total_nodes)  # 5
+num_C = total_nodes - num_A - num_B  # 43
 
-# valves
-c.executescript("""
-INSERT INTO valves VALUES
-('V500', 'P500', '正常'),
-('V501', 'P501', '正常'),
-('V502', 'P502', '正常'),
-('V503', 'P503', '正常'),
-('V504', 'P504', '正常');
-""")
+nodes = []
+pos = {}
+idx = 0
 
-print("✅ 已插入“仅关闭 C 级无法隔离，需切断 B 级管道” 测试例子")
+# A 级源
+for i in range(num_A):
+    nid = f"N{idx:03d}"
+    x, y = random.uniform(0,20), random.uniform(0,20)
+    nodes.append((nid, f"A级源{i+1}", "水厂", "A", x, y))
+    pos[nid] = (x, y)
+    idx += 1
 
+# B 级用户
+for i in range(num_B):
+    nid = f"N{idx:03d}"
+    x, y = random.uniform(0,20), random.uniform(0,20)
+    nodes.append((nid, f"B级用户{i+1}", "学校", "B", x, y))
+    pos[nid] = (x, y)
+    idx += 1
 
-# ✅ 提交事务并关闭连接
+# C 级用户
+for i in range(num_C):
+    nid = f"N{idx:03d}"
+    x, y = random.uniform(0,20), random.uniform(0,20)
+    nodes.append((nid, f"C级用户{i+1}", "住宅", "C", x, y))
+    pos[nid] = (x, y)
+    idx += 1
+
+# 插入 building_nodes
+c.executemany("""
+INSERT INTO building_nodes
+  (Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y)
+VALUES (?,      ?,         ?,         ?,     ?,           ?)
+""", nodes)
+print(f"✅ 已插入 {len(nodes)} 个节点")
+
+# —— 先计算每个节点到最近 A 级源的距离 —— 
+# 找出所有 A 级源的坐标
+A_coords = [pos[nid] for nid, *_ in nodes if nid.startswith("N00") and nid in pos and any(n[0]==nid and n[3]=="A" for n in nodes)]
+dist_to_source = {}
+for nid, *_ in nodes:
+    dist_to_source[nid] = min(
+        math.hypot(pos[nid][0] - ax, pos[nid][1] - ay)
+        for ax, ay in A_coords
+    )
+
+# —— 生成管道 & 阀门（每节点指向 k 个最近邻，但方向由上游→下游） —— 
+pipes = []
+valves = []
+pipe_count = 0
+
+for u in pos:
+    # 计算到所有其他节点的距离并取 k 最近
+    dists = [(math.hypot(pos[u][0]-pos[v][0], pos[u][1]-pos[v][1]), v)
+             for v in pos if v != u]
+    nearest = [v for _, v in sorted(dists, key=lambda x: x[0])[:k]]
+    for v in nearest:
+        # 确定方向：dist_to_source 小的为上游
+        if dist_to_source[u] <= dist_to_source[v]:
+            start, end = u, v
+        else:
+            start, end = v, u
+
+        pid = f"P{pipe_count:04d}"
+        diameter = random.choice([100,150,200,300,500])
+        pipes.append((pid, start, end, diameter, "正常"))
+        valves.append((f"V{pipe_count:04d}", pid, "正常"))
+        pipe_count += 1
+
+# 插入 pipes 和 valves
+c.executemany("""
+INSERT INTO pipes
+  (Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status)
+VALUES (?,       ?,             ?,           ?,        ?)
+""", pipes)
+c.executemany("""
+INSERT INTO valves
+  (Valve_ID, Controlled_Pipe_ID, Status)
+VALUES (?,       ?,                 ?)
+""", valves)
+print(f"✅ 已插入 {len(pipes)} 条管道，{len(valves)} 个阀门")
+
+# —— 提交 & 关闭 —— 
 conn.commit()
 conn.close()
-print("🎉 全部插入完成！25 节点现实型供水网络已就绪")
+print("🎉 50节点网络已按物理流向写入 my_database.db！")
