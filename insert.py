@@ -1,110 +1,216 @@
 import sqlite3
-import random
-import math
 
-# —— 配置 —— 
-random.seed(42)
-total_nodes = 50
-k = 3  # 最近邻数
-
-# —— 连接数据库 —— 
+# 连接数据库
 conn = sqlite3.connect("my_database.db")
 c = conn.cursor()
 
-# —— 清空旧数据 —— 
-c.execute("DELETE FROM valves")
-c.execute("DELETE FROM pipes")
-c.execute("DELETE FROM building_nodes")
-print("✅ 已清空旧的 building_nodes, pipes, valves 数据")
+print("🔧 在现有数据库基础上添加新的网络结构...")
 
-# —— 生成节点 & 随机位置 —— 
-num_A = 2
-num_B = int(0.10 * total_nodes)  # 5
-num_C = total_nodes - num_A - num_B  # 43
+# =============== 网络1：简单s-t网络 ===============
+print("\n📍 添加网络1：简单s-t网络")
 
-nodes = []
-pos = {}
-idx = 0
+# 添加节点（WP001作为水厂，其他节点用不同前缀避免冲突）
+network1_nodes = [
+    ("WP001", "水厂WP001", "水厂", "A", 20, 25),    # 源点
+    ("S1", "节点S1", "住宅", "C", 25, 30),          # 节点1
+    ("S2", "节点S2", "住宅", "C", 25, 20),          # 节点2
+    ("ST", "汇点ST", "住宅", "C", 30, 25)           # 汇点
+]
 
-# A 级源
-for i in range(num_A):
-    nid = f"N{idx:03d}"
-    x, y = random.uniform(0,20), random.uniform(0,20)
-    nodes.append((nid, f"A级源{i+1}", "水厂", "A", x, y))
-    pos[nid] = (x, y)
-    idx += 1
-
-# B 级用户
-for i in range(num_B):
-    nid = f"N{idx:03d}"
-    x, y = random.uniform(0,20), random.uniform(0,20)
-    nodes.append((nid, f"B级用户{i+1}", "学校", "B", x, y))
-    pos[nid] = (x, y)
-    idx += 1
-
-# C 级用户
-for i in range(num_C):
-    nid = f"N{idx:03d}"
-    x, y = random.uniform(0,20), random.uniform(0,20)
-    nodes.append((nid, f"C级用户{i+1}", "住宅", "C", x, y))
-    pos[nid] = (x, y)
-    idx += 1
-
-# 插入 building_nodes
 c.executemany("""
-INSERT INTO building_nodes
+INSERT OR IGNORE INTO building_nodes
   (Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y)
 VALUES (?,      ?,         ?,         ?,     ?,           ?)
-""", nodes)
-print(f"✅ 已插入 {len(nodes)} 个节点")
+""", network1_nodes)
 
-# —— 先计算每个节点到最近 A 级源的距离 —— 
-# 找出所有 A 级源的坐标
-A_coords = [pos[nid] for nid, *_ in nodes if nid.startswith("N00") and nid in pos and any(n[0]==nid and n[3]=="A" for n in nodes)]
-dist_to_source = {}
-for nid, *_ in nodes:
-    dist_to_source[nid] = min(
-        math.hypot(pos[nid][0] - ax, pos[nid][1] - ay)
-        for ax, ay in A_coords
-    )
+# 添加管道（根据原图半径：WP001->S1(3), WP001->S2(2), S1->ST(3), S2->ST(2), S1->S2(1)）
+network1_pipes = [
+    ("PS001", "WP001", "S1", 600, "正常"),  # 半径3，直径600
+    ("PS002", "WP001", "S2", 400, "正常"),  # 半径2，直径400
+    ("PS003", "S1", "ST", 600, "正常"),     # 半径3，直径600
+    ("PS004", "S2", "ST", 400, "正常"),     # 半径2，直径400
+    ("PS005", "S1", "S2", 200, "正常")      # 半径1，直径200
+]
 
-# —— 生成管道 & 阀门（每节点指向 k 个最近邻，但方向由上游→下游） —— 
-pipes = []
-valves = []
-pipe_count = 0
-
-for u in pos:
-    # 计算到所有其他节点的距离并取 k 最近
-    dists = [(math.hypot(pos[u][0]-pos[v][0], pos[u][1]-pos[v][1]), v)
-             for v in pos if v != u]
-    nearest = [v for _, v in sorted(dists, key=lambda x: x[0])[:k]]
-    for v in nearest:
-        # 确定方向：dist_to_source 小的为上游
-        if dist_to_source[u] <= dist_to_source[v]:
-            start, end = u, v
-        else:
-            start, end = v, u
-
-        pid = f"P{pipe_count:04d}"
-        diameter = random.choice([100,150,200,300,500])
-        pipes.append((pid, start, end, diameter, "正常"))
-        valves.append((f"V{pipe_count:04d}", pid, "正常"))
-        pipe_count += 1
-
-# 插入 pipes 和 valves
 c.executemany("""
-INSERT INTO pipes
+INSERT OR IGNORE INTO pipes
   (Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status)
 VALUES (?,       ?,             ?,           ?,        ?)
-""", pipes)
+""", network1_pipes)
+
+# 添加阀门
+network1_valves = [
+    ("VS001", "PS001", "正常"),
+    ("VS002", "PS002", "正常"),
+    ("VS003", "PS003", "正常"),
+    ("VS004", "PS004", "正常"),
+    ("VS005", "PS005", "正常")
+]
+
 c.executemany("""
-INSERT INTO valves
+INSERT OR IGNORE INTO valves
   (Valve_ID, Controlled_Pipe_ID, Status)
 VALUES (?,       ?,                 ?)
-""", valves)
-print(f"✅ 已插入 {len(pipes)} 条管道，{len(valves)} 个阀门")
+""", network1_valves)
 
-# —— 提交 & 关闭 —— 
+print("✅ 网络1添加完成：WP001 -> S1/S2 -> ST")
+
+# =============== 网络2：菱形网络 ===============
+print("\n📍 添加网络2：菱形网络")
+
+# 添加节点
+network2_nodes = [
+    ("WP002", "水厂WP002", "水厂", "A", 40, 45),    # 顶部水厂
+    ("D1", "用户D1", "住宅", "C", 35, 40),          # 左侧
+    ("B1", "用户B1", "学校", "B", 45, 40),          # 右侧（B级）
+    ("C1", "用户C1", "住宅", "C", 40, 35)           # 底部
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO building_nodes
+  (Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y)
+VALUES (?,      ?,         ?,         ?,     ?,           ?)
+""", network2_nodes)
+
+# 添加管道
+network2_pipes = [
+    ("PD001", "WP002", "D1", 500, "正常"),  # 半径2.5，直径500
+    ("PD002", "WP002", "B1", 600, "正常"),  # 半径3，直径600（B级用户）
+    ("PD003", "D1", "C1", 300, "正常"),     # 半径1.5，直径300
+    ("PD004", "B1", "C1", 400, "正常")      # 半径2，直径400
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO pipes
+  (Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status)
+VALUES (?,       ?,             ?,           ?,        ?)
+""", network2_pipes)
+
+# 添加阀门
+network2_valves = [
+    ("VD001", "PD001", "正常"),
+    ("VD002", "PD002", "正常"),
+    ("VD003", "PD003", "正常"),
+    ("VD004", "PD004", "正常")
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO valves
+  (Valve_ID, Controlled_Pipe_ID, Status)
+VALUES (?,       ?,                 ?)
+""", network2_valves)
+
+print("✅ 网络2添加完成：WP002菱形网络")
+
+# =============== 网络3：树形网络 ===============
+print("\n📍 添加网络3：树形网络")
+
+# 添加节点
+network3_nodes = [
+    ("WP003", "水厂WP003", "水厂", "A", 60, 70),    # 顶部水厂
+    ("B2", "用户B2", "学校", "B", 55, 60),          # 左侧中层（B级）
+    ("C2", "用户C2", "住宅", "C", 65, 60),          # 右侧中层（C级）
+    ("D2", "用户D2", "住宅", "C", 60, 50)           # 底部（C级）
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO building_nodes
+  (Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y)
+VALUES (?,      ?,         ?,         ?,     ?,           ?)
+""", network3_nodes)
+
+# 添加管道（根据原图半径：WP003->B2(1), WP003->C2(2), B2->D2(4), C2->D2(3)）
+network3_pipes = [
+    ("PT001", "WP003", "B2", 200, "正常"),  # 半径1，直径200
+    ("PT002", "WP003", "C2", 400, "正常"),  # 半径2，直径400
+    ("PT003", "B2", "D2", 800, "正常"),     # 半径4，直径800
+    ("PT004", "C2", "D2", 600, "正常")      # 半径3，直径600
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO pipes
+  (Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status)
+VALUES (?,       ?,             ?,           ?,        ?)
+""", network3_pipes)
+
+# 添加阀门
+network3_valves = [
+    ("VT001", "PT001", "正常"),
+    ("VT002", "PT002", "正常"),
+    ("VT003", "PT003", "正常"),
+    ("VT004", "PT004", "正常")
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO valves
+  (Valve_ID, Controlled_Pipe_ID, Status)
+VALUES (?,       ?,                 ?)
+""", network3_valves)
+
+print("✅ 网络3添加完成：WP003树形网络")
+
+# =============== 网络4：环形网络 ===============
+print("\n📍 添加网络4：环形网络")
+
+# 添加节点
+network4_nodes = [
+    ("test1", "用户Y1", "居民楼", "C", 2.5, 10),    # 水厂
+    ("test2", "用户Y2", "居民楼", "C", 3, 10),          # B级用户
+            # 额外节点形成更复杂网络
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO building_nodes
+  (Node_ID, Node_Name, Node_Type, Level, Location_X, Location_Y)
+VALUES (?,      ?,         ?,         ?,     ?,           ?)
+""", network4_nodes)
+
+# 添加管道（环形结构：D3 -> B3 -> WP004 -> C3 -> D3，加上额外连接）
+network4_pipes = [
+    ("P001", "WP001", "test1", 200, "正常"),  # B3->WP004
+    ("P002", "PS003", "test1", 400, "正常"),  # WP004->C3
+    ("P003", "WP001", "test2", 800, "正常"),     # D3->B3
+    ("P004", "WP003", "test2", 600, "正常"),     # C3->D3
+    ("P005", "test1", "test2", 300, "正常"),  # 额外连接
+       # 额外连接
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO pipes
+  (Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status)
+VALUES (?,       ?,             ?,           ?,        ?)
+""", network4_pipes)
+
+# 添加阀门
+network4_valves = [
+    ("V001", "P001", "正常"),
+    ("V002", "P002", "正常"),
+    ("V003", "P003", "正常"),
+    ("V004", "P004", "正常"),
+    ("V005", "P005", "正常"),
+
+]
+
+c.executemany("""
+INSERT OR IGNORE INTO valves
+  (Valve_ID, Controlled_Pipe_ID, Status)
+VALUES (?,       ?,                 ?)
+""", network4_valves)
+
+print("✅ 网络4添加完成：WP004环形网络")
+
+# 提交所有更改
 conn.commit()
 conn.close()
-print("🎉 50节点网络已按物理流向写入 my_database.db！")
+
+print("\n🎉 所有网络结构已添加完成！")
+print("\n📊 网络汇总：")
+print("网络1 (简单型): WP001 -> S1/S2 -> ST")
+print("网络2 (菱形型): WP002 菱形布局")
+print("网络3 (树形型): WP003 -> B2/C2 -> D2")
+print("网络4 (环形型): WP004 复杂环形网络")
+print("\n💡 现在可以用不同的水厂节点测试各种隔离场景：")
+print("- 测试WP001网络的S1节点漏损")
+print("- 测试WP002网络的管道隔离")
+print("- 测试WP003网络的D2节点隔离")
+print("- 测试WP004网络的复杂隔离场景")

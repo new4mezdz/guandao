@@ -1,0 +1,4258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>节点坐标显示测试</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .viz-area {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .info-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-width: 300px;
+        }
+
+        svg {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .node {
+            stroke: #fff;
+            stroke-width: 3px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .node:hover {
+            stroke-width: 5px;
+            transform: scale(1.1);
+        }
+
+        .node.selected {
+            stroke: #00ff00;
+            stroke-width: 6px;
+            filter: drop-shadow(0 0 10px #00ff00);
+        }
+
+        .link {
+            stroke: #999;
+            stroke-width: 2px;
+            fill: none;
+            opacity: 0.6;
+        }
+
+        .coordinate-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .coordinate-table th,
+        .coordinate-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        .coordinate-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+
+        .status {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            border-left: 4px solid #2196f3;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="viz-area">
+            <h2>🎯 点击节点查看坐标</h2>
+            <svg id="network" width="600" height="500"></svg>
+        </div>
+
+        <div class="info-panel">
+            <div class="status" id="status">
+                💡 点击任意节点查看坐标信息
+            </div>
+
+            <div id="nodeInfo">
+                <h3>节点信息</h3>
+                <p>请点击左侧的节点</p>
+            </div>
+
+            <div id="coordinateInfo" style="display: none;">
+                <h3>📍 坐标详情</h3>
+                <table class="coordinate-table">
+                    <tr>
+                        <th>坐标类型</th>
+                        <th>X 坐标</th>
+                        <th>Y 坐标</th>
+                    </tr>
+                    <tr>
+                        <td>数据库原始坐标</td>
+                        <td id="dbX">-</td>
+                        <td id="dbY">-</td>
+                    </tr>
+                    <tr>
+                        <td>D3 计算坐标</td>
+                        <td id="d3X">-</td>
+                        <td id="d3Y">-</td>
+                    </tr>
+                    <tr>
+                        <td>屏幕显示坐标</td>
+                        <td id="screenX">-</td>
+                        <td id="screenY">-</td>
+                    </tr>
+                </table>
+                <button onclick="clearSelection()">清除选择</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 数据
+        const nodesData = [
+  {
+    "id": "WP001",
+    "name": "第1水厂",
+    "type": "水厂",
+    "level": "A",
+    "original_x": 2.5,
+    "original_y": 20.0,
+    "color": "#ff4444"
+  },
+  {
+    "id": "WP002",
+    "name": "第2水厂",
+    "type": "水厂",
+    "level": "A",
+    "original_x": 21.25,
+    "original_y": 3.75,
+    "color": "#ff4444"
+  },
+  {
+    "id": "PS001",
+    "name": "第1泵站",
+    "type": "泵站",
+    "level": "A",
+    "original_x": 20.41828039537365,
+    "original_y": 12.5,
+    "color": "#ff4444"
+  },
+  {
+    "id": "PS002",
+    "name": "第2泵站",
+    "type": "泵站",
+    "level": "A",
+    "original_x": 14.609068166231932,
+    "original_y": 18.84319717884139,
+    "color": "#ff4444"
+  },
+  {
+    "id": "PS003",
+    "name": "第3泵站",
+    "type": "泵站",
+    "level": "A",
+    "original_x": 5.858444849370403,
+    "original_y": 17.219973450578028,
+    "color": "#ff4444"
+  },
+  {
+    "id": "PS004",
+    "name": "第4泵站",
+    "type": "泵站",
+    "level": "A",
+    "original_x": 5.480532736828373,
+    "original_y": 8.819984395231877,
+    "color": "#ff4444"
+  },
+  {
+    "id": "PS005",
+    "name": "第5泵站",
+    "type": "泵站",
+    "level": "A",
+    "original_x": 14.745245003990735,
+    "original_y": 6.708644383086918,
+    "color": "#ff4444"
+  },
+  {
+    "id": "WT001",
+    "name": "第1水塔",
+    "type": "水塔",
+    "level": "A",
+    "original_x": 7.576164559063059,
+    "original_y": 12.593717541808841,
+    "color": "#ff4444"
+  },
+  {
+    "id": "WT002",
+    "name": "第2水塔",
+    "type": "水塔",
+    "level": "A",
+    "original_x": 4.214379469467613,
+    "original_y": 7.229658887016349,
+    "color": "#ff4444"
+  },
+  {
+    "id": "WT003",
+    "name": "第3水塔",
+    "type": "水塔",
+    "level": "A",
+    "original_x": 15.122977661141656,
+    "original_y": 13.286475910556291,
+    "color": "#ff4444"
+  },
+  {
+    "id": "WT004",
+    "name": "第4水塔",
+    "type": "水塔",
+    "level": "A",
+    "original_x": 7.6077108857121925,
+    "original_y": 14.062149467828403,
+    "color": "#ff4444"
+  },
+  {
+    "id": "DMA001",
+    "name": "第1片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 4.28536421254185,
+    "original_y": 2.5,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA002",
+    "name": "第2片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 10.52182219437303,
+    "original_y": 3.8680227312058517,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA003",
+    "name": "第3片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 15.02593943694247,
+    "original_y": 2.5,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA004",
+    "name": "第4片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 22.5,
+    "original_y": 2.512229544172351,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA005",
+    "name": "第5片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 2.5,
+    "original_y": 7.86268641312549,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA006",
+    "name": "第6片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 10.678103873802975,
+    "original_y": 9.763972617625843,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA007",
+    "name": "第7片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 16.776731024778925,
+    "original_y": 10.236494200101816,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA008",
+    "name": "第8片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 22.010855342955125,
+    "original_y": 11.14918411492264,
+    "color": "#ff8800"
+  },
+  {
+    "id": "DMA009",
+    "name": "第9片区计量站",
+    "type": "计量站",
+    "level": "B",
+    "original_x": 2.669503914531326,
+    "original_y": 15.8201523672746,
+    "color": "#ff8800"
+  },
+  {
+    "id": "HP001",
+    "name": "第1医院",
+    "type": "医院",
+    "level": "B",
+    "original_x": 17.441069963794924,
+    "original_y": 14.27779628546369,
+    "color": "#ff8800"
+  },
+  {
+    "id": "HP002",
+    "name": "第2医院",
+    "type": "医院",
+    "level": "B",
+    "original_x": 17.92560350466166,
+    "original_y": 13.66028217885143,
+    "color": "#ff8800"
+  },
+  {
+    "id": "SCH001",
+    "name": "第1学校",
+    "type": "学校",
+    "level": "B",
+    "original_x": 15.568577543223853,
+    "original_y": 5.687365754834933,
+    "color": "#ff8800"
+  },
+  {
+    "id": "SCH002",
+    "name": "第2学校",
+    "type": "学校",
+    "level": "B",
+    "original_x": 8.418474134773202,
+    "original_y": 9.340819454031607,
+    "color": "#ff8800"
+  },
+  {
+    "id": "SCH003",
+    "name": "第3学校",
+    "type": "学校",
+    "level": "B",
+    "original_x": 6.196879653854412,
+    "original_y": 8.491863295415452,
+    "color": "#ff8800"
+  },
+  {
+    "id": "FAC001",
+    "name": "第1工厂",
+    "type": "工厂",
+    "level": "B",
+    "original_x": 2.6398680155504604,
+    "original_y": 15.213688885288004,
+    "color": "#ff8800"
+  },
+  {
+    "id": "FAC002",
+    "name": "第2工厂",
+    "type": "工厂",
+    "level": "B",
+    "original_x": 3.100904835584413,
+    "original_y": 6.690140615429754,
+    "color": "#ff8800"
+  },
+  {
+    "id": "COM001",
+    "name": "商业区1",
+    "type": "商业",
+    "level": "B",
+    "original_x": 9.004667330736702,
+    "original_y": 19.04981881568741,
+    "color": "#ff8800"
+  },
+  {
+    "id": "COM002",
+    "name": "商业区2",
+    "type": "商业",
+    "level": "B",
+    "original_x": 14.720530778698903,
+    "original_y": 14.136965085004823,
+    "color": "#ff8800"
+  },
+  {
+    "id": "COM003",
+    "name": "商业区3",
+    "type": "商业",
+    "level": "B",
+    "original_x": 7.567079722971455,
+    "original_y": 15.936901969255238,
+    "color": "#ff8800"
+  },
+  {
+    "id": "COM004",
+    "name": "商业区4",
+    "type": "商业",
+    "level": "B",
+    "original_x": 7.4510374064289255,
+    "original_y": 10.691831626364717,
+    "color": "#ff8800"
+  },
+  {
+    "id": "COM005",
+    "name": "商业区5",
+    "type": "商业",
+    "level": "B",
+    "original_x": 19.84285025954893,
+    "original_y": 14.599996397811394,
+    "color": "#ff8800"
+  },
+  {
+    "id": "RES001",
+    "name": "老城区小区1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.268532707907809,
+    "original_y": 16.665603878782807,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES002",
+    "name": "老城区小区2",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 7.56908171058385,
+    "original_y": 17.08089414050414,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES003",
+    "name": "老城区小区3",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 7.257813766880954,
+    "original_y": 18.05531703407914,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES004",
+    "name": "老城区小区4",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.325510570270527,
+    "original_y": 16.81556226909498,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES005",
+    "name": "老城区小区5",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.647853965677435,
+    "original_y": 16.238640842697606,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES006",
+    "name": "老城区小区6",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.712037514075999,
+    "original_y": 17.180161304705784,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES007",
+    "name": "老城区小区7",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 8.41299035044128,
+    "original_y": 17.485873383108935,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES008",
+    "name": "老城区小区8",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.527337505325287,
+    "original_y": 19.31504027238674,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES009",
+    "name": "老城区小区9",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.8852862712076135,
+    "original_y": 18.20157849085436,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES010",
+    "name": "老城区小区10",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 8.875091192410443,
+    "original_y": 20.359102499637913,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES011",
+    "name": "老城区小区11",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.933798692268665,
+    "original_y": 19.302326396117312,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES012",
+    "name": "老城区小区12",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 10.500999719616756,
+    "original_y": 18.643154133065227,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES013",
+    "name": "老城区小区13",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.385038691767683,
+    "original_y": 20.22969602933087,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES014",
+    "name": "老城区小区14",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 7.929565360790648,
+    "original_y": 18.589132883122502,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES015",
+    "name": "老城区小区15",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 10.611905102624041,
+    "original_y": 16.886007552368635,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES016",
+    "name": "老城区小区16",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 8.993749384094047,
+    "original_y": 18.06085355016133,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES017",
+    "name": "老城区小区17",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.257983150595065,
+    "original_y": 15.605080841194688,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES018",
+    "name": "老城区小区18",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 4.409332472069848,
+    "original_y": 17.723088915371054,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES019",
+    "name": "老城区小区19",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.797321175171545,
+    "original_y": 17.551188699105527,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES020",
+    "name": "老城区小区20",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.340268458147879,
+    "original_y": 15.838257286294228,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES021",
+    "name": "老城区小区21",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 8.373859430441403,
+    "original_y": 14.569449676265945,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES022",
+    "name": "老城区小区22",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.642793905487304,
+    "original_y": 15.057304296687084,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES023",
+    "name": "老城区小区23",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 7.065921655093454,
+    "original_y": 15.267942125985366,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES024",
+    "name": "老城区小区24",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 8.46020283807515,
+    "original_y": 15.405869172593398,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES025",
+    "name": "老城区小区25",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.110330213230549,
+    "original_y": 15.060882234550835,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES026",
+    "name": "老城区小区26",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 7.9614023156007745,
+    "original_y": 19.76124508905332,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES027",
+    "name": "老城区小区27",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.78827360146356,
+    "original_y": 19.505478930218207,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES028",
+    "name": "老城区小区28",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 8.348990652941254,
+    "original_y": 16.357530517215345,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES029",
+    "name": "老城区小区29",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 10.288935474877933,
+    "original_y": 15.987903730700651,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES030",
+    "name": "新城区小区1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.519775788181134,
+    "original_y": 15.211506528758756,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES031",
+    "name": "新城区小区2",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 16.324259748562515,
+    "original_y": 13.634830528216666,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES032",
+    "name": "新城区小区3",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.303364140130627,
+    "original_y": 14.789412803307727,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES033",
+    "name": "新城区小区4",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.495410940772139,
+    "original_y": 14.503175106216563,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES034",
+    "name": "新城区小区5",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.829526057361942,
+    "original_y": 16.04369368267924,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES035",
+    "name": "新城区小区6",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.693943549584684,
+    "original_y": 15.500753918845435,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES036",
+    "name": "新城区小区7",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.44533232608464,
+    "original_y": 13.70213203983865,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES037",
+    "name": "新城区小区8",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 17.069132947620957,
+    "original_y": 15.658591393520783,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES038",
+    "name": "新城区小区9",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.84336372141378,
+    "original_y": 14.078538662440165,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES039",
+    "name": "新城区小区10",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.915236218278096,
+    "original_y": 13.020192871141814,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES040",
+    "name": "新城区小区11",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.227272508964782,
+    "original_y": 12.238125438038455,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES041",
+    "name": "新城区小区12",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.667941914229903,
+    "original_y": 15.909402675696256,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES042",
+    "name": "新城区小区13",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 11.57035962653438,
+    "original_y": 15.3928672886169,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES043",
+    "name": "新城区小区14",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 17.809495789654438,
+    "original_y": 18.429176862394677,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES044",
+    "name": "新城区小区15",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.224593956323801,
+    "original_y": 10.255523356544982,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES045",
+    "name": "新城区小区16",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 18.622776146562586,
+    "original_y": 16.51976095848034,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES046",
+    "name": "新城区小区17",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 16.090081416291337,
+    "original_y": 14.617279383734896,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES047",
+    "name": "新城区小区18",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 17.06770751164134,
+    "original_y": 16.99519324062761,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES048",
+    "name": "新城区小区19",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.056211943474837,
+    "original_y": 12.777103399401195,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES049",
+    "name": "新城区小区20",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.181479065637468,
+    "original_y": 16.30912508116566,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES050",
+    "name": "新城区小区21",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.33347371750168,
+    "original_y": 11.374853987173429,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES051",
+    "name": "新城区小区22",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 11.69731622187934,
+    "original_y": 13.340656002756536,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES052",
+    "name": "新城区小区23",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 18.234463464185712,
+    "original_y": 15.124147241580205,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES053",
+    "name": "新城区小区24",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.05808369276583,
+    "original_y": 12.301858981696153,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES054",
+    "name": "新城区小区25",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 16.203374854894918,
+    "original_y": 17.442631914937003,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES055",
+    "name": "新城区小区26",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.071927191933675,
+    "original_y": 12.425766912582295,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES056",
+    "name": "新城区小区27",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 17.17779751360027,
+    "original_y": 12.506182026305718,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES057",
+    "name": "新城区小区28",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.021650134272788,
+    "original_y": 16.52707134917554,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES058",
+    "name": "新城区小区29",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.378971206350933,
+    "original_y": 17.849989426889774,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES059",
+    "name": "新城区小区30",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.462264768396825,
+    "original_y": 17.484739172943073,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES060",
+    "name": "新城区小区31",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.512000516906989,
+    "original_y": 11.118769386397748,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES061",
+    "name": "新城区小区32",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 18.548444665109617,
+    "original_y": 14.23646333705152,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES062",
+    "name": "新城区小区33",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.277386451374735,
+    "original_y": 18.095913709804893,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES063",
+    "name": "新城区小区34",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 19.15155958084157,
+    "original_y": 15.743058122983722,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES064",
+    "name": "新城区小区35",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.269916937686183,
+    "original_y": 19.694407949074726,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES065",
+    "name": "中心区小区1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.457104301825689,
+    "original_y": 7.121924519559419,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES066",
+    "name": "中心区小区2",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.914008803851345,
+    "original_y": 10.09199300876428,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES067",
+    "name": "中心区小区3",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 11.587537324952878,
+    "original_y": 11.017733221585878,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES068",
+    "name": "中心区小区4",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 10.111545273577299,
+    "original_y": 8.145044192135629,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES069",
+    "name": "中心区小区5",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 10.702386952685806,
+    "original_y": 11.866377725249317,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES070",
+    "name": "中心区小区6",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.434873919956225,
+    "original_y": 10.878534218204678,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES071",
+    "name": "中心区小区7",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 11.8378996973151,
+    "original_y": 10.036645408163121,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES072",
+    "name": "中心区小区8",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.910981626227096,
+    "original_y": 10.804636617971873,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES073",
+    "name": "中心区小区9",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 11.721122602661652,
+    "original_y": 6.816683382763539,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES074",
+    "name": "中心区小区10",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.806069180828265,
+    "original_y": 8.913359458311175,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES075",
+    "name": "中心区小区11",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.15277033219978,
+    "original_y": 8.137879192487299,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES076",
+    "name": "中心区小区12",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 12.08802825376264,
+    "original_y": 7.920709165123032,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES077",
+    "name": "中心区小区13",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 11.42000964133142,
+    "original_y": 8.654749917672971,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES078",
+    "name": "中心区小区14",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 10.56889082080898,
+    "original_y": 12.860259636022459,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES079",
+    "name": "中心区小区15",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 15.923596869298116,
+    "original_y": 8.666947605130845,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES080",
+    "name": "中心区小区16",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.43577281728108,
+    "original_y": 9.459306223807651,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES081",
+    "name": "中心区小区17",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.33611267962665,
+    "original_y": 10.101534444890675,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES082",
+    "name": "中心区小区18",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.284785613177117,
+    "original_y": 11.049016143231311,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES083",
+    "name": "中心区小区19",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.655473044476249,
+    "original_y": 11.795743957425229,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES084",
+    "name": "中心区小区20",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 9.931845676504912,
+    "original_y": 9.159261857470556,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES085",
+    "name": "中心区小区21",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 14.625497633126908,
+    "original_y": 8.394561840498158,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES086",
+    "name": "中心区小区22",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 13.475896198284001,
+    "original_y": 9.432173060738963,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES087",
+    "name": "中心区小区23",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 16.45869970947085,
+    "original_y": 11.67658353530821,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES088",
+    "name": "开发区小区1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 21.070246276931087,
+    "original_y": 7.995586544120853,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES089",
+    "name": "开发区小区2",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 18.300105024941587,
+    "original_y": 8.595839443005714,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES090",
+    "name": "开发区小区3",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 20.844529499222233,
+    "original_y": 6.939665419940097,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES091",
+    "name": "开发区小区4",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 19.28711837711553,
+    "original_y": 6.348206677240882,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES092",
+    "name": "开发区小区5",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 19.70866232785823,
+    "original_y": 7.913040950717818,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES093",
+    "name": "开发区小区6",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 18.825326795657958,
+    "original_y": 7.284760717823002,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES094",
+    "name": "开发区小区7",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 19.62150965103345,
+    "original_y": 9.82814069438172,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES095",
+    "name": "开发区小区8",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 20.110253455845356,
+    "original_y": 6.410650782033738,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES096",
+    "name": "开发区小区9",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 20.231990483155208,
+    "original_y": 8.612115948315754,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES097",
+    "name": "开发区小区10",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 21.553546188944235,
+    "original_y": 6.035858583028354,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES098",
+    "name": "开发区小区11",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 21.69176265352213,
+    "original_y": 6.8496141631336815,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES099",
+    "name": "开发区小区12",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 20.699090614051112,
+    "original_y": 5.587516597111546,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES100",
+    "name": "开发区小区13",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 20.737533737539973,
+    "original_y": 9.301766242184392,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES101",
+    "name": "开发区小区14",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 21.980872916008817,
+    "original_y": 7.714188998014483,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES102",
+    "name": "开发区小区15",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 22.34195610933149,
+    "original_y": 8.68122751236492,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES103",
+    "name": "开发区小区16",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 19.155954386425712,
+    "original_y": 8.98589781812942,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES104",
+    "name": "开发区小区17",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 17.738548068735586,
+    "original_y": 7.405986047249211,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES105",
+    "name": "工业区住宅小区1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.889811375295572,
+    "original_y": 6.814271554204265,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES106",
+    "name": "工业区住宅小区2",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 4.55861030095673,
+    "original_y": 8.068971064864789,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES107",
+    "name": "工业区住宅小区3",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.02686406286245,
+    "original_y": 5.906448885856152,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES108",
+    "name": "工业区住宅小区4",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 5.2827179432787315,
+    "original_y": 7.543982089194759,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES109",
+    "name": "工业区住宅小区5",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 3.879399385671155,
+    "original_y": 6.050445107449549,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES110",
+    "name": "工业区住宅小区6",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.25052183672909,
+    "original_y": 5.9494397491047755,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES111",
+    "name": "工业区住宅小区7",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.99349519381091,
+    "original_y": 6.383896911371942,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES112",
+    "name": "工业区住宅小区8",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 6.662704582642948,
+    "original_y": 7.525838600468947,
+    "color": "#44ff44"
+  },
+  {
+    "id": "RES113",
+    "name": "工业区住宅小区9",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 7.075330580017169,
+    "original_y": 8.240824517790784,
+    "color": "#44ff44"
+  },
+  {
+    "id": "S1",
+    "name": "节点S1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 25.0,
+    "original_y": 30.0,
+    "color": "#44ff44"
+  },
+  {
+    "id": "S2",
+    "name": "节点S2",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 25.0,
+    "original_y": 20.0,
+    "color": "#44ff44"
+  },
+  {
+    "id": "ST",
+    "name": "汇点ST",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 30.0,
+    "original_y": 25.0,
+    "color": "#44ff44"
+  },
+  {
+    "id": "D1",
+    "name": "用户D1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 35.0,
+    "original_y": 40.0,
+    "color": "#44ff44"
+  },
+  {
+    "id": "B1",
+    "name": "用户B1",
+    "type": "学校",
+    "level": "B",
+    "original_x": 45.0,
+    "original_y": 40.0,
+    "color": "#ff8800"
+  },
+  {
+    "id": "C1",
+    "name": "用户C1",
+    "type": "住宅",
+    "level": "C",
+    "original_x": 40.0,
+    "original_y": 35.0,
+    "color": "#44ff44"
+  }
+];
+        const linksData = [
+  {
+    "id": "P0000",
+    "source": "WP001",
+    "target": "PS003",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0001",
+    "source": "WP001",
+    "target": "PS004",
+    "diameter": 1200.0
+  },
+  {
+    "id": "P0002",
+    "source": "WP002",
+    "target": "PS005",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0003",
+    "source": "WP002",
+    "target": "PS001",
+    "diameter": 1200.0
+  },
+  {
+    "id": "P0004",
+    "source": "PS001",
+    "target": "WT003",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0005",
+    "source": "PS001",
+    "target": "WT001",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0006",
+    "source": "PS002",
+    "target": "WT003",
+    "diameter": 800.0
+  },
+  {
+    "id": "P0007",
+    "source": "PS002",
+    "target": "WT004",
+    "diameter": 800.0
+  },
+  {
+    "id": "P0008",
+    "source": "PS003",
+    "target": "WT004",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0009",
+    "source": "PS003",
+    "target": "WT001",
+    "diameter": 800.0
+  },
+  {
+    "id": "P0010",
+    "source": "PS004",
+    "target": "WT002",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0011",
+    "source": "PS004",
+    "target": "WT001",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0012",
+    "source": "PS005",
+    "target": "WT003",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0013",
+    "source": "PS005",
+    "target": "WT001",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0014",
+    "source": "WT002",
+    "target": "DMA001",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0015",
+    "source": "PS004",
+    "target": "DMA001",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0016",
+    "source": "PS005",
+    "target": "DMA002",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0017",
+    "source": "PS004",
+    "target": "DMA002",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0018",
+    "source": "PS005",
+    "target": "DMA003",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0019",
+    "source": "WT003",
+    "target": "DMA003",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0020",
+    "source": "PS005",
+    "target": "DMA004",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0021",
+    "source": "PS001",
+    "target": "DMA004",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0022",
+    "source": "WT002",
+    "target": "DMA005",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0023",
+    "source": "PS004",
+    "target": "DMA005",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0024",
+    "source": "WT001",
+    "target": "DMA006",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0025",
+    "source": "PS005",
+    "target": "DMA006",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0026",
+    "source": "WT003",
+    "target": "DMA007",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0027",
+    "source": "PS005",
+    "target": "DMA007",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0028",
+    "source": "PS001",
+    "target": "DMA008",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0029",
+    "source": "WT003",
+    "target": "DMA008",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0030",
+    "source": "PS003",
+    "target": "DMA009",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0031",
+    "source": "WT004",
+    "target": "DMA009",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0032",
+    "source": "DMA001",
+    "target": "FAC002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0033",
+    "source": "DMA001",
+    "target": "RES107",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0034",
+    "source": "DMA001",
+    "target": "RES109",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0035",
+    "source": "DMA001",
+    "target": "RES110",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0036",
+    "source": "DMA002",
+    "target": "RES065",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0037",
+    "source": "DMA002",
+    "target": "RES068",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0038",
+    "source": "DMA002",
+    "target": "RES073",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0039",
+    "source": "DMA002",
+    "target": "RES076",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0040",
+    "source": "DMA002",
+    "target": "RES111",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0041",
+    "source": "DMA003",
+    "target": "SCH001",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0042",
+    "source": "DMA004",
+    "target": "RES097",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0043",
+    "source": "DMA004",
+    "target": "RES098",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0044",
+    "source": "DMA004",
+    "target": "RES099",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0045",
+    "source": "DMA005",
+    "target": "SCH003",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0046",
+    "source": "DMA005",
+    "target": "FAC002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0047",
+    "source": "DMA005",
+    "target": "RES105",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0048",
+    "source": "DMA005",
+    "target": "RES106",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0049",
+    "source": "DMA005",
+    "target": "RES107",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0050",
+    "source": "DMA005",
+    "target": "RES108",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0051",
+    "source": "DMA005",
+    "target": "RES109",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0052",
+    "source": "DMA005",
+    "target": "RES110",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0053",
+    "source": "DMA006",
+    "target": "SCH002",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0054",
+    "source": "DMA006",
+    "target": "COM004",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0055",
+    "source": "DMA006",
+    "target": "RES036",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0056",
+    "source": "DMA006",
+    "target": "RES039",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0057",
+    "source": "DMA006",
+    "target": "RES040",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0058",
+    "source": "DMA006",
+    "target": "RES044",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0059",
+    "source": "DMA006",
+    "target": "RES050",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0060",
+    "source": "DMA006",
+    "target": "RES051",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0061",
+    "source": "DMA007",
+    "target": "HP001",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0062",
+    "source": "DMA007",
+    "target": "HP002",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0063",
+    "source": "DMA007",
+    "target": "COM002",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0064",
+    "source": "DMA007",
+    "target": "RES031",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0065",
+    "source": "DMA007",
+    "target": "RES040",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0066",
+    "source": "DMA007",
+    "target": "RES044",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0067",
+    "source": "DMA007",
+    "target": "RES046",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0068",
+    "source": "DMA007",
+    "target": "RES048",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0069",
+    "source": "DMA008",
+    "target": "COM005",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0070",
+    "source": "DMA008",
+    "target": "RES088",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0071",
+    "source": "DMA008",
+    "target": "RES090",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0072",
+    "source": "DMA008",
+    "target": "RES092",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0073",
+    "source": "DMA008",
+    "target": "RES094",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0074",
+    "source": "DMA008",
+    "target": "RES096",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0075",
+    "source": "DMA008",
+    "target": "RES098",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0076",
+    "source": "DMA008",
+    "target": "RES100",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0077",
+    "source": "DMA009",
+    "target": "FAC001",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0078",
+    "source": "DMA009",
+    "target": "RES001",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0079",
+    "source": "DMA009",
+    "target": "RES005",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0080",
+    "source": "DMA009",
+    "target": "RES006",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0081",
+    "source": "DMA009",
+    "target": "RES009",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0082",
+    "source": "DMA009",
+    "target": "RES017",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0083",
+    "source": "DMA009",
+    "target": "RES018",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0084",
+    "source": "DMA009",
+    "target": "RES023",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0085",
+    "source": "RES001",
+    "target": "RES017",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0086",
+    "source": "RES001",
+    "target": "RES018",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0087",
+    "source": "RES001",
+    "target": "RES005",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0088",
+    "source": "RES002",
+    "target": "RES006",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0089",
+    "source": "RES002",
+    "target": "RES007",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0090",
+    "source": "RES003",
+    "target": "RES014",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0091",
+    "source": "RES003",
+    "target": "RES002",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0092",
+    "source": "RES003",
+    "target": "RES006",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0093",
+    "source": "RES004",
+    "target": "RES019",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0094",
+    "source": "RES004",
+    "target": "RES020",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0095",
+    "source": "RES005",
+    "target": "RES006",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0096",
+    "source": "RES005",
+    "target": "RES023",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0097",
+    "source": "RES007",
+    "target": "RES016",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0098",
+    "source": "RES008",
+    "target": "RES009",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0099",
+    "source": "RES008",
+    "target": "RES013",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0100",
+    "source": "RES008",
+    "target": "RES011",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0101",
+    "source": "RES009",
+    "target": "RES006",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0102",
+    "source": "RES010",
+    "target": "RES026",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0103",
+    "source": "RES010",
+    "target": "RES027",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0104",
+    "source": "RES010",
+    "target": "RES014",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0105",
+    "source": "RES011",
+    "target": "RES013",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0106",
+    "source": "RES011",
+    "target": "RES026",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0107",
+    "source": "RES011",
+    "target": "RES014",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0108",
+    "source": "RES012",
+    "target": "RES027",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0109",
+    "source": "RES012",
+    "target": "RES019",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0110",
+    "source": "RES014",
+    "target": "RES026",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0111",
+    "source": "RES015",
+    "target": "RES029",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0112",
+    "source": "RES015",
+    "target": "RES019",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0113",
+    "source": "RES016",
+    "target": "RES019",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0114",
+    "source": "RES016",
+    "target": "RES014",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0115",
+    "source": "RES017",
+    "target": "RES025",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0116",
+    "source": "RES017",
+    "target": "RES005",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0117",
+    "source": "RES018",
+    "target": "RES009",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0118",
+    "source": "RES020",
+    "target": "RES022",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0119",
+    "source": "RES020",
+    "target": "RES029",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0120",
+    "source": "RES021",
+    "target": "RES024",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0121",
+    "source": "RES021",
+    "target": "RES022",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0122",
+    "source": "RES021",
+    "target": "RES023",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0123",
+    "source": "RES022",
+    "target": "RES029",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0124",
+    "source": "RES023",
+    "target": "RES025",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0125",
+    "source": "RES023",
+    "target": "RES024",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0126",
+    "source": "RES024",
+    "target": "RES028",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0127",
+    "source": "RES028",
+    "target": "RES002",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0128",
+    "source": "RES028",
+    "target": "RES004",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0129",
+    "source": "RES030",
+    "target": "RES035",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0130",
+    "source": "RES030",
+    "target": "RES032",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0131",
+    "source": "RES031",
+    "target": "RES046",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0132",
+    "source": "RES031",
+    "target": "RES056",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0133",
+    "source": "RES031",
+    "target": "RES032",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0134",
+    "source": "RES032",
+    "target": "RES046",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0135",
+    "source": "RES033",
+    "target": "RES036",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0136",
+    "source": "RES033",
+    "target": "RES042",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0137",
+    "source": "RES034",
+    "target": "RES057",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0138",
+    "source": "RES034",
+    "target": "RES037",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0139",
+    "source": "RES035",
+    "target": "RES049",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0140",
+    "source": "RES035",
+    "target": "RES041",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0141",
+    "source": "RES036",
+    "target": "RES039",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0142",
+    "source": "RES037",
+    "target": "RES052",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0143",
+    "source": "RES037",
+    "target": "RES047",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0144",
+    "source": "RES038",
+    "target": "RES048",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0145",
+    "source": "RES038",
+    "target": "RES030",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0146",
+    "source": "RES038",
+    "target": "RES039",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0147",
+    "source": "RES039",
+    "target": "RES040",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0148",
+    "source": "RES040",
+    "target": "RES048",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0149",
+    "source": "RES041",
+    "target": "RES042",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0150",
+    "source": "RES041",
+    "target": "RES033",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0151",
+    "source": "RES043",
+    "target": "RES047",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0152",
+    "source": "RES043",
+    "target": "RES054",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0153",
+    "source": "RES043",
+    "target": "RES045",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0154",
+    "source": "RES044",
+    "target": "RES080",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0155",
+    "source": "RES044",
+    "target": "RES086",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0156",
+    "source": "RES044",
+    "target": "RES050",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0157",
+    "source": "RES045",
+    "target": "RES063",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0158",
+    "source": "RES045",
+    "target": "RES052",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0159",
+    "source": "RES045",
+    "target": "RES047",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0160",
+    "source": "RES047",
+    "target": "RES054",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0161",
+    "source": "RES048",
+    "target": "RES055",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0162",
+    "source": "RES049",
+    "target": "RES057",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0163",
+    "source": "RES050",
+    "target": "RES082",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0164",
+    "source": "RES051",
+    "target": "RES036",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0165",
+    "source": "RES051",
+    "target": "RES053",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0166",
+    "source": "RES051",
+    "target": "RES078",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0167",
+    "source": "RES052",
+    "target": "RES061",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0168",
+    "source": "RES052",
+    "target": "RES063",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0169",
+    "source": "RES053",
+    "target": "RES039",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0170",
+    "source": "RES054",
+    "target": "RES062",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0171",
+    "source": "RES054",
+    "target": "RES034",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0172",
+    "source": "RES055",
+    "target": "RES050",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0173",
+    "source": "RES056",
+    "target": "RES087",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0174",
+    "source": "RES057",
+    "target": "RES030",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0175",
+    "source": "RES058",
+    "target": "RES062",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0176",
+    "source": "RES058",
+    "target": "RES057",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0177",
+    "source": "RES059",
+    "target": "RES041",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0178",
+    "source": "RES059",
+    "target": "RES015",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0179",
+    "source": "RES060",
+    "target": "RES087",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0180",
+    "source": "RES060",
+    "target": "RES050",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0181",
+    "source": "RES061",
+    "target": "RES063",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0182",
+    "source": "RES062",
+    "target": "RES057",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0183",
+    "source": "RES064",
+    "target": "RES058",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0184",
+    "source": "RES064",
+    "target": "RES062",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0185",
+    "source": "RES065",
+    "target": "RES075",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0186",
+    "source": "RES065",
+    "target": "RES076",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0187",
+    "source": "RES066",
+    "target": "RES086",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0188",
+    "source": "RES066",
+    "target": "RES070",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0189",
+    "source": "RES067",
+    "target": "RES070",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0190",
+    "source": "RES067",
+    "target": "RES071",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0191",
+    "source": "RES068",
+    "target": "RES084",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0192",
+    "source": "RES068",
+    "target": "RES077",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0193",
+    "source": "RES069",
+    "target": "RES078",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0194",
+    "source": "RES069",
+    "target": "RES083",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0195",
+    "source": "RES069",
+    "target": "RES067",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0196",
+    "source": "RES070",
+    "target": "RES082",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0197",
+    "source": "RES071",
+    "target": "RES070",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0198",
+    "source": "RES071",
+    "target": "RES066",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0199",
+    "source": "RES072",
+    "target": "RES081",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0200",
+    "source": "RES072",
+    "target": "RES083",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0201",
+    "source": "RES073",
+    "target": "RES076",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0202",
+    "source": "RES073",
+    "target": "RES065",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0203",
+    "source": "RES073",
+    "target": "RES077",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0204",
+    "source": "RES074",
+    "target": "RES086",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0205",
+    "source": "RES074",
+    "target": "RES075",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0206",
+    "source": "RES076",
+    "target": "RES077",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0207",
+    "source": "RES076",
+    "target": "RES075",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0208",
+    "source": "RES077",
+    "target": "RES074",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0209",
+    "source": "RES079",
+    "target": "RES085",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0210",
+    "source": "RES079",
+    "target": "RES080",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0211",
+    "source": "RES079",
+    "target": "RES104",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0212",
+    "source": "RES080",
+    "target": "RES086",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0213",
+    "source": "RES080",
+    "target": "RES085",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0214",
+    "source": "RES081",
+    "target": "RES084",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0215",
+    "source": "RES081",
+    "target": "RES083",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0216",
+    "source": "RES082",
+    "target": "RES066",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0217",
+    "source": "RES084",
+    "target": "RES077",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0218",
+    "source": "RES085",
+    "target": "RES075",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0219",
+    "source": "RES088",
+    "target": "RES101",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0220",
+    "source": "RES088",
+    "target": "RES096",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0221",
+    "source": "RES089",
+    "target": "RES103",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0222",
+    "source": "RES089",
+    "target": "RES104",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0223",
+    "source": "RES090",
+    "target": "RES098",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0224",
+    "source": "RES090",
+    "target": "RES095",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0225",
+    "source": "RES091",
+    "target": "RES095",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0226",
+    "source": "RES091",
+    "target": "RES093",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0227",
+    "source": "RES092",
+    "target": "RES096",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0228",
+    "source": "RES092",
+    "target": "RES093",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0229",
+    "source": "RES092",
+    "target": "RES103",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0230",
+    "source": "RES093",
+    "target": "RES104",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0231",
+    "source": "RES094",
+    "target": "RES103",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0232",
+    "source": "RES094",
+    "target": "RES100",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0233",
+    "source": "RES094",
+    "target": "RES096",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0234",
+    "source": "RES096",
+    "target": "RES100",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0235",
+    "source": "RES097",
+    "target": "RES098",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0236",
+    "source": "RES097",
+    "target": "RES099",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0237",
+    "source": "RES099",
+    "target": "RES095",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0238",
+    "source": "RES099",
+    "target": "RES090",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0239",
+    "source": "RES101",
+    "target": "RES098",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0240",
+    "source": "RES102",
+    "target": "RES101",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0241",
+    "source": "RES102",
+    "target": "RES088",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0242",
+    "source": "RES103",
+    "target": "RES096",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0243",
+    "source": "RES105",
+    "target": "RES110",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0244",
+    "source": "RES105",
+    "target": "RES108",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0245",
+    "source": "RES106",
+    "target": "RES108",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0246",
+    "source": "RES106",
+    "target": "RES105",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0247",
+    "source": "RES106",
+    "target": "RES109",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0248",
+    "source": "RES107",
+    "target": "RES109",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0249",
+    "source": "RES107",
+    "target": "RES110",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0250",
+    "source": "RES107",
+    "target": "RES105",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0251",
+    "source": "RES109",
+    "target": "RES108",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0252",
+    "source": "RES110",
+    "target": "RES111",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0253",
+    "source": "RES111",
+    "target": "RES105",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0254",
+    "source": "RES112",
+    "target": "RES113",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0255",
+    "source": "RES112",
+    "target": "RES105",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0256",
+    "source": "RES112",
+    "target": "RES111",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0257",
+    "source": "RES113",
+    "target": "RES105",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0258",
+    "source": "HP001",
+    "target": "HP002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0259",
+    "source": "SCH002",
+    "target": "COM004",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0260",
+    "source": "SCH003",
+    "target": "SCH002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0261",
+    "source": "FAC001",
+    "target": "COM003",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0262",
+    "source": "FAC002",
+    "target": "SCH003",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0263",
+    "source": "COM001",
+    "target": "COM003",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0264",
+    "source": "COM002",
+    "target": "HP001",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0265",
+    "source": "COM005",
+    "target": "HP002",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0266",
+    "source": "RES032",
+    "target": "PS002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0267",
+    "source": "RES032",
+    "target": "RES049",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0268",
+    "source": "RES085",
+    "target": "RES079",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0269",
+    "source": "RES032",
+    "target": "RES030",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0270",
+    "source": "RES049",
+    "target": "RES059",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0271",
+    "source": "RES029",
+    "target": "RES042",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0272",
+    "source": "RES042",
+    "target": "RES041",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0273",
+    "source": "RES078",
+    "target": "RES069",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0274",
+    "source": "RES049",
+    "target": "RES057",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0275",
+    "source": "RES057",
+    "target": "RES047",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0276",
+    "source": "SCH003",
+    "target": "RES113",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0277",
+    "source": "RES009",
+    "target": "RES008",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0278",
+    "source": "COM005",
+    "target": "RES063",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0279",
+    "source": "RES084",
+    "target": "RES081",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0280",
+    "source": "RES070",
+    "target": "RES067",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0281",
+    "source": "RES029",
+    "target": "RES015",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0282",
+    "source": "RES016",
+    "target": "COM001",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0283",
+    "source": "COM002",
+    "target": "RES038",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0284",
+    "source": "RES103",
+    "target": "RES089",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0285",
+    "source": "RES024",
+    "target": "RES021",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0286",
+    "source": "COM001",
+    "target": "RES027",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0287",
+    "source": "RES057",
+    "target": "RES034",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0288",
+    "source": "RES087",
+    "target": "RES060",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0289",
+    "source": "RES081",
+    "target": "RES072",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0290",
+    "source": "RES026",
+    "target": "RES010",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0291",
+    "source": "PS002",
+    "target": "RES064",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0292",
+    "source": "RES101",
+    "target": "RES102",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0293",
+    "source": "RES113",
+    "target": "RES112",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0294",
+    "source": "RES072",
+    "target": "RES083",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0295",
+    "source": "HP002",
+    "target": "RES061",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0296",
+    "source": "RES047",
+    "target": "RES043",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0297",
+    "source": "RES008",
+    "target": "RES013",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0298",
+    "source": "RES063",
+    "target": "RES045",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0299",
+    "source": "RES014",
+    "target": "RES003",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0300",
+    "source": "RES095",
+    "target": "RES091",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0301",
+    "source": "RES030",
+    "target": "RES035",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0302",
+    "source": "RES067",
+    "target": "RES071",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0303",
+    "source": "RES013",
+    "target": "RES011",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0304",
+    "source": "RES036",
+    "target": "RES033",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0305",
+    "source": "RES027",
+    "target": "RES012",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0306",
+    "source": "RES061",
+    "target": "RES052",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0307",
+    "source": "RES052",
+    "target": "RES037",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0308",
+    "source": "PS002",
+    "target": "RES058",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0309",
+    "source": "RES047",
+    "target": "RES054",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0310",
+    "source": "RES058",
+    "target": "RES062",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0311",
+    "source": "WP001",
+    "target": "PS003",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0312",
+    "source": "WP001",
+    "target": "PS004",
+    "diameter": 1200.0
+  },
+  {
+    "id": "P0313",
+    "source": "WP002",
+    "target": "PS005",
+    "diameter": 1200.0
+  },
+  {
+    "id": "P0314",
+    "source": "WP002",
+    "target": "PS001",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0315",
+    "source": "PS001",
+    "target": "WT003",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0316",
+    "source": "PS001",
+    "target": "WT001",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0317",
+    "source": "PS002",
+    "target": "WT003",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0318",
+    "source": "PS002",
+    "target": "WT004",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0319",
+    "source": "PS003",
+    "target": "WT004",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0320",
+    "source": "PS003",
+    "target": "WT001",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0321",
+    "source": "PS004",
+    "target": "WT002",
+    "diameter": 800.0
+  },
+  {
+    "id": "P0322",
+    "source": "PS004",
+    "target": "WT001",
+    "diameter": 1000.0
+  },
+  {
+    "id": "P0323",
+    "source": "PS005",
+    "target": "WT003",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0324",
+    "source": "PS005",
+    "target": "WT001",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0325",
+    "source": "WT002",
+    "target": "DMA001",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0326",
+    "source": "PS004",
+    "target": "DMA001",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0327",
+    "source": "PS005",
+    "target": "DMA002",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0328",
+    "source": "PS004",
+    "target": "DMA002",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0329",
+    "source": "PS005",
+    "target": "DMA003",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0330",
+    "source": "WT003",
+    "target": "DMA003",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0331",
+    "source": "PS005",
+    "target": "DMA004",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0332",
+    "source": "PS001",
+    "target": "DMA004",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0333",
+    "source": "WT002",
+    "target": "DMA005",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0334",
+    "source": "PS004",
+    "target": "DMA005",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0335",
+    "source": "WT001",
+    "target": "DMA006",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0336",
+    "source": "PS005",
+    "target": "DMA006",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0337",
+    "source": "WT003",
+    "target": "DMA007",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0338",
+    "source": "PS005",
+    "target": "DMA007",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0339",
+    "source": "PS001",
+    "target": "DMA008",
+    "diameter": 500.0
+  },
+  {
+    "id": "P0340",
+    "source": "WT003",
+    "target": "DMA008",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0341",
+    "source": "PS003",
+    "target": "DMA009",
+    "diameter": 600.0
+  },
+  {
+    "id": "P0342",
+    "source": "WT004",
+    "target": "DMA009",
+    "diameter": 400.0
+  },
+  {
+    "id": "P0343",
+    "source": "DMA001",
+    "target": "FAC002",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0344",
+    "source": "DMA001",
+    "target": "RES107",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0345",
+    "source": "DMA001",
+    "target": "RES109",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0346",
+    "source": "DMA001",
+    "target": "RES110",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0347",
+    "source": "DMA002",
+    "target": "RES065",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0348",
+    "source": "DMA002",
+    "target": "RES068",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0349",
+    "source": "DMA002",
+    "target": "RES073",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0350",
+    "source": "DMA002",
+    "target": "RES076",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0351",
+    "source": "DMA002",
+    "target": "RES111",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0352",
+    "source": "DMA003",
+    "target": "SCH001",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0353",
+    "source": "DMA004",
+    "target": "RES097",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0354",
+    "source": "DMA004",
+    "target": "RES098",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0355",
+    "source": "DMA004",
+    "target": "RES099",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0356",
+    "source": "DMA005",
+    "target": "SCH003",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0357",
+    "source": "DMA005",
+    "target": "FAC002",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0358",
+    "source": "DMA005",
+    "target": "RES105",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0359",
+    "source": "DMA005",
+    "target": "RES106",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0360",
+    "source": "DMA005",
+    "target": "RES107",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0361",
+    "source": "DMA005",
+    "target": "RES108",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0362",
+    "source": "DMA005",
+    "target": "RES109",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0363",
+    "source": "DMA005",
+    "target": "RES110",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0364",
+    "source": "DMA006",
+    "target": "SCH002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0365",
+    "source": "DMA006",
+    "target": "COM004",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0366",
+    "source": "DMA006",
+    "target": "RES036",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0367",
+    "source": "DMA006",
+    "target": "RES039",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0368",
+    "source": "DMA006",
+    "target": "RES040",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0369",
+    "source": "DMA006",
+    "target": "RES044",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0370",
+    "source": "DMA006",
+    "target": "RES050",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0371",
+    "source": "DMA006",
+    "target": "RES051",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0372",
+    "source": "DMA007",
+    "target": "HP001",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0373",
+    "source": "DMA007",
+    "target": "HP002",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0374",
+    "source": "DMA007",
+    "target": "COM002",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0375",
+    "source": "DMA007",
+    "target": "RES031",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0376",
+    "source": "DMA007",
+    "target": "RES040",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0377",
+    "source": "DMA007",
+    "target": "RES044",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0378",
+    "source": "DMA007",
+    "target": "RES046",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0379",
+    "source": "DMA007",
+    "target": "RES048",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0380",
+    "source": "DMA008",
+    "target": "COM005",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0381",
+    "source": "DMA008",
+    "target": "RES088",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0382",
+    "source": "DMA008",
+    "target": "RES090",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0383",
+    "source": "DMA008",
+    "target": "RES092",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0384",
+    "source": "DMA008",
+    "target": "RES094",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0385",
+    "source": "DMA008",
+    "target": "RES096",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0386",
+    "source": "DMA008",
+    "target": "RES098",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0387",
+    "source": "DMA008",
+    "target": "RES100",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0388",
+    "source": "DMA009",
+    "target": "FAC001",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0389",
+    "source": "DMA009",
+    "target": "RES001",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0390",
+    "source": "DMA009",
+    "target": "RES005",
+    "diameter": 250.0
+  },
+  {
+    "id": "P0391",
+    "source": "DMA009",
+    "target": "RES006",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0392",
+    "source": "DMA009",
+    "target": "RES009",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0393",
+    "source": "DMA009",
+    "target": "RES017",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0394",
+    "source": "DMA009",
+    "target": "RES018",
+    "diameter": 300.0
+  },
+  {
+    "id": "P0395",
+    "source": "DMA009",
+    "target": "RES023",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0396",
+    "source": "RES013",
+    "target": "RES026",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0397",
+    "source": "RES015",
+    "target": "RES004",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0398",
+    "source": "RES025",
+    "target": "RES005",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0399",
+    "source": "RES027",
+    "target": "RES016",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0400",
+    "source": "RES032",
+    "target": "RES034",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0401",
+    "source": "RES033",
+    "target": "RES051",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0402",
+    "source": "RES040",
+    "target": "RES053",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0403",
+    "source": "RES047",
+    "target": "RES034",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0404",
+    "source": "RES048",
+    "target": "RES039",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0405",
+    "source": "RES055",
+    "target": "RES060",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0406",
+    "source": "RES056",
+    "target": "RES055",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0407",
+    "source": "RES059",
+    "target": "RES058",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0408",
+    "source": "RES061",
+    "target": "RES037",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0409",
+    "source": "RES064",
+    "target": "RES059",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0410",
+    "source": "RES065",
+    "target": "RES085",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0411",
+    "source": "RES078",
+    "target": "RES083",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0412",
+    "source": "RES087",
+    "target": "RES055",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0413",
+    "source": "RES088",
+    "target": "RES090",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0414",
+    "source": "RES089",
+    "target": "RES093",
+    "diameter": 100.0
+  },
+  {
+    "id": "P0415",
+    "source": "RES097",
+    "target": "RES090",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0416",
+    "source": "RES100",
+    "target": "RES088",
+    "diameter": 200.0
+  },
+  {
+    "id": "P0417",
+    "source": "RES104",
+    "target": "RES091",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0418",
+    "source": "RES108",
+    "target": "RES112",
+    "diameter": 150.0
+  },
+  {
+    "id": "P0419",
+    "source": "RES113",
+    "target": "RES111",
+    "diameter": 100.0
+  },
+  {
+    "id": "PS001",
+    "source": "WP001",
+    "target": "S1",
+    "diameter": 600.0
+  },
+  {
+    "id": "PS002",
+    "source": "WP001",
+    "target": "S2",
+    "diameter": 400.0
+  },
+  {
+    "id": "PS003",
+    "source": "S1",
+    "target": "ST",
+    "diameter": 600.0
+  },
+  {
+    "id": "PS004",
+    "source": "S2",
+    "target": "ST",
+    "diameter": 400.0
+  },
+  {
+    "id": "PS005",
+    "source": "S1",
+    "target": "S2",
+    "diameter": 200.0
+  },
+  {
+    "id": "PD001",
+    "source": "WP002",
+    "target": "D1",
+    "diameter": 500.0
+  },
+  {
+    "id": "PD002",
+    "source": "WP002",
+    "target": "B1",
+    "diameter": 600.0
+  },
+  {
+    "id": "PD003",
+    "source": "D1",
+    "target": "C1",
+    "diameter": 300.0
+  },
+  {
+    "id": "PD004",
+    "source": "B1",
+    "target": "C1",
+    "diameter": 400.0
+  }
+];
+
+        console.log('加载数据:', nodesData.length, '个节点');
+
+        // 全局变量
+        let selectedNode = null;
+        let nodes = [];
+        let links = [];
+        let simulation;
+
+        // 初始化
+        function init() {
+            const svg = d3.select("#network");
+            const width = 600;
+            const height = 500;
+
+            // 处理数据
+            nodes = nodesData.map(d => ({...d}));
+            links = linksData.map(d => ({
+                source: d.source,
+                target: d.target,
+                ...d
+            }));
+
+            console.log('处理后的节点数据:', nodes);
+
+            // 创建力导向图
+            simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(80))
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+
+            // 绘制连接线
+            const link = svg.append("g")
+                .selectAll("line")
+                .data(links)
+                .enter().append("line")
+                .attr("class", "link");
+
+            // 绘制节点
+            const node = svg.append("g")
+                .selectAll("circle")
+                .data(nodes)
+                .enter().append("circle")
+                .attr("class", "node")
+                .attr("r", d => d.level === 'A' ? 12 : (d.level === 'B' ? 10 : 8))
+                .attr("fill", d => d.color)
+                .on("click", function(event, d) {
+                    console.log('节点被点击:', d);
+                    selectNode(d);
+                })
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            // 添加节点标签
+            const labels = svg.append("g")
+                .selectAll("text")
+                .data(nodes)
+                .enter().append("text")
+                .text(d => d.id)
+                .attr("text-anchor", "middle")
+                .attr("dy", 4)
+                .style("font-size", "10px")
+                .style("font-weight", "bold")
+                .style("fill", "#333")
+                .style("pointer-events", "none");
+
+            // 更新位置
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+
+                labels
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y);
+
+                // 如果有选中节点，更新坐标显示
+                if (selectedNode) {
+                    updateCoordinateDisplay();
+                }
+            });
+        }
+
+        // 选择节点
+        function selectNode(node) {
+            console.log('选择节点函数被调用:', node);
+            selectedNode = node;
+
+            // 更新视觉效果
+            d3.selectAll(".node")
+                .classed("selected", d => d.id === node.id);
+
+            // 显示节点信息
+            document.getElementById("nodeInfo").innerHTML = `
+                <h3>节点信息</h3>
+                <p><strong>ID:</strong> ${node.id}</p>
+                <p><strong>名称:</strong> ${node.name}</p>
+                <p><strong>等级:</strong> ${node.level}</p>
+                <p><strong>类型:</strong> ${node.type}</p>
+            `;
+
+            // 显示坐标信息
+            document.getElementById("coordinateInfo").style.display = "block";
+            updateCoordinateDisplay();
+
+            // 更新状态
+            document.getElementById("status").innerHTML = `✅ 已选择节点: ${node.id} - ${node.name}`;
+        }
+
+        // 更新坐标显示
+        function updateCoordinateDisplay() {
+            if (!selectedNode) return;
+
+            // 数据库原始坐标
+            document.getElementById("dbX").textContent = selectedNode.original_x.toFixed(4);
+            document.getElementById("dbY").textContent = selectedNode.original_y.toFixed(4);
+
+            // D3 计算坐标
+            document.getElementById("d3X").textContent = (selectedNode.x || 0).toFixed(2);
+            document.getElementById("d3Y").textContent = (selectedNode.y || 0).toFixed(2);
+
+            // 屏幕坐标（SVG 坐标）
+            document.getElementById("screenX").textContent = (selectedNode.x || 0).toFixed(2);
+            document.getElementById("screenY").textContent = (selectedNode.y || 0).toFixed(2);
+        }
+
+        // 清除选择
+        function clearSelection() {
+            selectedNode = null;
+            d3.selectAll(".node").classed("selected", false);
+            document.getElementById("coordinateInfo").style.display = "none";
+            document.getElementById("nodeInfo").innerHTML = `
+                <h3>节点信息</h3>
+                <p>请点击左侧的节点</p>
+            `;
+            document.getElementById("status").innerHTML = "💡 点击任意节点查看坐标信息";
+        }
+
+        // 拖拽函数
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
