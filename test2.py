@@ -1,4 +1,4 @@
-# 修复版增强 test2.py - 基于简化版本的成功经验
+# 完整版增强 test2.py - 修复所有语法错误并解决节点悬停跳动问题
 import sqlite3
 import json
 import os
@@ -6,7 +6,7 @@ import os
 
 def generate_fixed_interactive_html():
     """生成修复版交互式HTML可视化"""
-    print("🎨 正在生成修复版交互式可视化...")
+    print("🎨 正在生成完整版交互式可视化...")
 
     # 读取数据库数据
     conn = sqlite3.connect("my_database.db")
@@ -57,13 +57,18 @@ def generate_fixed_interactive_html():
 
     valves = {v[1]: {'id': v[0], 'status': v[2]} for v in valves_data}
 
-    # 生成HTML模板 - 使用简化的字符串拼接避免模板字符串问题
-    html_template = """<!DOCTYPE html>
+    # 将数据转换为JSON字符串
+    nodes_json = json.dumps(nodes, ensure_ascii=False)
+    links_json = json.dumps(links, ensure_ascii=False)
+    valves_json = json.dumps(valves, ensure_ascii=False)
+
+    # 创建HTML内容 - 分段创建避免语法错误
+    html_start = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>供水网络交互式可视化 - 修复版</title>
+    <title>供水网络交互式可视化 - 完整增强版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <style>
         body {
@@ -173,7 +178,6 @@ def generate_fixed_interactive_html():
 
         .node:hover {
             stroke-width: 4px;
-            transform: scale(1.2);
         }
 
         .node.selected {
@@ -207,6 +211,12 @@ def generate_fixed_interactive_html():
             stroke-width: 3px;
             fill: none;
             transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .link:hover {
+            stroke-width: 5px;
+            stroke-opacity: 1;
         }
 
         .link.highlighted {
@@ -215,6 +225,13 @@ def generate_fixed_interactive_html():
             stroke-opacity: 1;
             filter: drop-shadow(0 0 8px #ff4444);
             animation: flow 1s infinite linear;
+        }
+
+        .link.selected {
+            stroke: #007bff;
+            stroke-width: 8px;
+            stroke-opacity: 1;
+            filter: drop-shadow(0 0 10px #007bff);
         }
 
         @keyframes flow {
@@ -320,14 +337,42 @@ def generate_fixed_interactive_html():
         .test-btn {
             background: #17a2b8;
         }
+
+        .valve-info {
+            background: #e8f4fd;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        .valve-status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .valve-status.normal {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .valve-status.failed {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚰 供水网络交互式可视化系统（修复版）</h1>
+            <h1>🚰 供水网络交互式可视化系统</h1>
             <p style="margin: 10px 0 0 0; opacity: 0.9;">节点: """ + str(len(nodes)) + """ | 管道: """ + str(
-        len(links)) + """ | 阀门: """ + str(len(valves)) + """ | ✨ 功能：节点坐标显示</p>
+        len(links)) + """ | 阀门: """ + str(len(valves)) + """ | ✨ 功能：节点坐标与管道阀门显示</p>
         </div>
 
         <div class="controls">
@@ -358,6 +403,7 @@ def generate_fixed_interactive_html():
             <button onclick="performRealIsolation()">🔍 执行隔离分析</button>
             <button onclick="resetVisualization()">🔄 重置视图</button>
             <button onclick="showAllPipes()">👁️ 显示所有管道</button>
+            <button onclick="clearAllSelections()">🧹 清除选择</button>
         </div>
 
         <div class="main-content">
@@ -387,6 +433,10 @@ def generate_fixed_interactive_html():
                         <div style="width: 16px; height: 16px; background: #00ff00; margin-right: 10px; border-radius: 50%; box-shadow: 0 0 8px #00ff00;"></div>
                         <span>已选择节点</span>
                     </div>
+                    <div class="legend-item">
+                        <div style="width: 20px; height: 4px; background: #007bff; margin-right: 8px; border-radius: 2px; box-shadow: 0 0 6px #007bff;"></div>
+                        <span>已选择管道</span>
+                    </div>
                 </div>
             </div>
 
@@ -394,6 +444,11 @@ def generate_fixed_interactive_html():
                 <div class="info-section" id="nodeInfo">
                     <h4 style="margin-top: 0;">节点信息</h4>
                     <p>👆 点击左侧网络图中的任意节点查看详细信息</p>
+                </div>
+
+                <div class="info-section" id="pipeInfo" style="display: none;">
+                    <h4 style="margin-top: 0;">🔧 管道信息</h4>
+                    <div id="pipeDetails"></div>
                 </div>
 
                 <div class="info-section" id="coordinateInfo" style="display: none;">
@@ -432,15 +487,18 @@ def generate_fixed_interactive_html():
         </div>
 
         <div class="status" id="status">
-            ✅ 系统已加载 - 点击节点查看坐标信息
+            ✅ 系统已加载 - 点击节点查看坐标信息，点击管道查看阀门信息
         </div>
     </div>
 
-    <script>
-        // 数据 - 使用简单的方式避免模板字符串问题
-        const nodesData = """ + json.dumps(nodes, ensure_ascii=False) + """;
-        const linksData = """ + json.dumps(links, ensure_ascii=False) + """;
-        const valvesData = """ + json.dumps(valves, ensure_ascii=False) + """;
+    <script>"""
+
+    # JavaScript部分
+    js_content = """
+        // 数据
+        const nodesData = """ + nodes_json + """;
+        const linksData = """ + links_json + """;
+        const valvesData = """ + valves_json + """;
 
         // 全局变量
         let nodes = [];
@@ -450,12 +508,12 @@ def generate_fixed_interactive_html():
         let highlightedLinks = new Set();
         let currentIsolationResult = null;
         let selectedNode = null;
+        let selectedPipe = null;
 
         console.log('加载数据:', nodesData.length, '个节点,', linksData.length, '条管道');
 
         // 初始化
         function init() {
-            // 处理数据
             nodes = nodesData.map(d => ({...d}));
             links = linksData.map(d => ({
                 ...d,
@@ -466,7 +524,6 @@ def generate_fixed_interactive_html():
             svg = d3.select("#networkSvg");
             g = svg.append("g");
 
-            // 添加缩放和拖拽
             const zoom = d3.zoom()
                 .scaleExtent([0.1, 4])
                 .on("zoom", (event) => {
@@ -475,19 +532,16 @@ def generate_fixed_interactive_html():
                 });
 
             svg.call(zoom);
-
             updateVisualization();
         }
 
         // 更新可视化
         function updateVisualization() {
-            const width = parseInt(svg.style("width"));
-            const height = parseInt(svg.style("height"));
+            const width = parseInt(svg.style("width")) || 800;
+            const height = parseInt(svg.style("height")) || 600;
 
-            // 清除现有内容
             g.selectAll("*").remove();
 
-            // 定义箭头标记
             svg.select("defs").remove();
             svg.append("defs").selectAll("marker")
                 .data(["normal", "highlighted"])
@@ -513,18 +567,33 @@ def generate_fixed_interactive_html():
                 .attr("id", d => "link-" + d.id)
                 .attr("marker-end", "url(#arrow-normal)")
                 .attr("stroke-width", d => Math.max(2, d.diameter / 100))
+                .on("mouseover", function(event, d) {
+                    var valve = valvesData[d.id];
+                    var content = "管道: " + d.id + "<br>" +
+                                "直径: " + d.diameter + "mm<br>" +
+                                "状态: " + d.status + "<br>" +
+                                (valve ? "阀门: " + valve.id + " (" + valve.status + ")" : "无阀门");
+                    showTooltip(event, content);
+                })
+                .on("mouseout", function() {
+                    hideTooltip();
+                })
                 .on("click", function(event, d) {
-                    const leakType = document.getElementById("leakType").value;
+                    event.stopPropagation();
+                    console.log('管道被点击:', d);
+
+                    var leakType = document.getElementById("leakType").value;
                     if (leakType === "管道漏损" || leakType === "爆管") {
                         document.getElementById("leakPipe").value = d.id;
                     } else {
-                        toggleLinkHighlight(d.id);
-                        const sourceId = d.source.id || d.source;
+                        var sourceId = d.source.id || d.source;
                         document.getElementById("leakNode").value = sourceId;
                     }
+
+                    selectPipe(d);
                 });
 
-            // 绘制节点 - 关键修复：简化事件处理
+            // 绘制节点
             const node = g.append("g")
                 .selectAll("circle")
                 .data(nodes)
@@ -533,8 +602,23 @@ def generate_fixed_interactive_html():
                 .attr("r", d => d.level === 'A' ? 12 : (d.level === 'B' ? 10 : 8))
                 .attr("fill", d => d.color)
                 .on("click", function(event, d) {
+                    event.stopPropagation();
                     console.log('节点被点击:', d);
                     selectNodeFunction(d);
+                })
+                .on("mouseover", function(event, d) {
+                    // 平滑地将半径放大 1.5 倍
+                    const originalRadius = d.level === 'A' ? 12 : (d.level === 'B' ? 10 : 8);
+                    d3.select(this).transition()
+                        .duration(200) // 动画时长200毫秒
+                        .attr("r", originalRadius * 1.5);
+                })
+                .on("mouseout", function(event, d) {
+                    // 平滑地恢复原始半径
+                    const originalRadius = d.level === 'A' ? 12 : (d.level === 'B' ? 10 : 8);
+                    d3.select(this).transition()
+                        .duration(200)
+                        .attr("r", originalRadius);
                 })
                 .call(d3.drag()
                     .on("start", dragstarted)
@@ -557,10 +641,9 @@ def generate_fixed_interactive_html():
                     .distance(d => Math.min(150, Math.max(50, d.diameter / 2)))
                 )
                 .force("charge", d3.forceManyBody().strength(-500))
-                .force("center", d3.forceCenter(width / 2 || 400, height / 2 || 300))
+                .force("center", d3.forceCenter(width / 2, height / 2))
                 .force("collision", d3.forceCollide().radius(d => (d.level === 'A' ? 20 : 15)));
 
-            // 更新位置
             simulation.on("tick", () => {
                 link
                     .attr("x1", d => d.source.x)
@@ -576,21 +659,22 @@ def generate_fixed_interactive_html():
                     .attr("x", d => d.x)
                     .attr("y", d => d.y);
 
-                // 实时更新当前坐标
                 updateCurrentCoordinates();
             });
         }
 
-        // 选择节点功能 - 关键修复：简化函数名
+        // 选择节点功能
         function selectNodeFunction(node) {
             console.log('选择节点:', node);
             selectedNode = node;
 
-            // 更新节点视觉效果
-            d3.selectAll(".node")
-                .classed("selected", d => d.id === node.id);
+            selectedPipe = null;
+            d3.selectAll(".link").classed("selected", false);
+            document.getElementById("pipeInfo").style.display = "none";
 
-            // 显示节点信息
+            d3.selectAll(".node")
+                .classed("selected", function(d) { return d.id === node.id; });
+
             document.getElementById("nodeInfo").innerHTML = 
                 "<h4 style='margin-top: 0;'>节点详情</h4>" +
                 "<p><strong>" + node.name + "</strong></p>" +
@@ -598,17 +682,138 @@ def generate_fixed_interactive_html():
                 "<p>等级: " + node.level + "</p>" +
                 "<p>类型: " + node.type + "</p>";
 
-            // 显示坐标信息
             document.getElementById("coordinateInfo").style.display = "block";
             updateCoordinateDisplay();
-
-            // 设置输入框
             document.getElementById("leakNode").value = node.id;
-
             updateStatus("✅ 已选择节点: " + node.id + " - " + node.name);
         }
 
-        // 更新坐标显示
+        // 选择管道功能
+        function selectPipe(pipe) {
+            console.log('选择管道:', pipe);
+            selectedPipe = pipe;
+
+            selectedNode = null;
+            d3.selectAll(".node").classed("selected", false);
+            document.getElementById("coordinateInfo").style.display = "none";
+
+            d3.selectAll(".link")
+                .classed("selected", function(d) { return d.id === pipe.id; });
+
+            showPipeInfo(pipe);
+            updateStatus("🔧 已选择管道: " + pipe.id + " (点击其他管道或节点切换选择)");
+        }
+
+        // 显示管道信息
+        function showPipeInfo(pipe) {
+            var sourceId = pipe.source.id || pipe.source;
+            var targetId = pipe.target.id || pipe.target;
+            var sourceNode = nodes.find(function(n) { return n.id === sourceId; });
+            var targetNode = nodes.find(function(n) { return n.id === targetId; });
+            var valve = valvesData[pipe.id];
+
+            var pipeHtml = 
+                "<p><strong>管道ID:</strong> " + pipe.id + "</p>" +
+                "<p><strong>直径:</strong> " + pipe.diameter + " mm</p>" +
+                "<p><strong>状态:</strong> " + pipe.status + "</p>" +
+                "<p><strong>起始节点:</strong> " + sourceId + 
+                (sourceNode ? " (" + sourceNode.name + ")" : "") + "</p>" +
+                "<p><strong>终端节点:</strong> " + targetId + 
+                (targetNode ? " (" + targetNode.name + ")" : "") + "</p>";
+
+            if (valve) {
+                var statusClass = valve.status === "正常" ? "normal" : "failed";
+                pipeHtml += 
+                    "<div class='valve-info'>" +
+                    "<h5 style='margin: 0 0 10px 0;'>🔧 控制阀门</h5>" +
+                    "<p><strong>阀门ID:</strong> " + valve.id + "</p>" +
+                    "<p><strong>状态:</strong> <span class='valve-status " + statusClass + "'>" + valve.status + "</span></p>" +
+                    "<p style='font-size: 12px; color: #666; margin: 10px 0 0 0;'>" +
+                    "💡 " + (valve.status === "正常" ? "阀门工作正常，可用于隔离控制" : "阀门故障，无法用于隔离控制") +
+                    "</p>" +
+                    "</div>";
+            } else {
+                pipeHtml += 
+                    "<div class='valve-info'>" +
+                    "<h5 style='margin: 0 0 10px 0;'>⚠️ 阀门信息</h5>" +
+                    "<p style='color: #dc3545;'>此管道没有控制阀门</p>" +
+                    "<p style='font-size: 12px; color: #666; margin: 10px 0 0 0;'>" +
+                    "💡 无阀门管道需要通过其他方式进行隔离" +
+                    "</p>" +
+                    "</div>";
+            }
+
+            pipeHtml += 
+                "<button class='clear-btn' onclick='clearPipeSelection()' style='margin-top: 10px;'>清除选择</button>" +
+                "<button class='test-btn' onclick='highlightPipeConnections()' style='margin-top: 10px;'>显示连接</button>";
+
+            document.getElementById("pipeInfo").style.display = "block";
+            document.getElementById("pipeDetails").innerHTML = pipeHtml;
+
+            document.getElementById("nodeInfo").innerHTML = 
+                "<h4 style='margin-top: 0;'>节点信息</h4>" +
+                "<p>👆 点击左侧网络图中的任意节点查看详细信息</p>";
+        }
+
+        // 其他功能函数
+        function clearPipeSelection() {
+            selectedPipe = null;
+            d3.selectAll(".link").classed("selected", false);
+            document.getElementById("pipeInfo").style.display = "none";
+            updateStatus("🔄 已清除管道选择 - 点击管道或节点查看信息");
+        }
+
+        function highlightPipeConnections() {
+            if (!selectedPipe) {
+                alert("请先选择一个管道");
+                return;
+            }
+
+            var sourceId = selectedPipe.source.id || selectedPipe.source;
+            var targetId = selectedPipe.target.id || selectedPipe.target;
+
+            d3.selectAll(".node")
+                .classed("leak", function(d) { 
+                    return d.id === sourceId || d.id === targetId; 
+                });
+
+            highlightedLinks.clear();
+            highlightedLinks.add(selectedPipe.id);
+            updateLinkHighlights();
+
+            updateStatus("🎯 已高亮管道 " + selectedPipe.id + " 的连接节点: " + sourceId + " ↔ " + targetId);
+        }
+
+        function showTooltip(event, content) {
+            var tooltip = document.createElement('div');
+            tooltip.innerHTML = content;
+            tooltip.style.position = 'absolute';
+            tooltip.style.background = 'rgba(0,0,0,0.8)';
+            tooltip.style.color = 'white';
+            tooltip.style.padding = '8px';
+            tooltip.style.borderRadius = '4px';
+            tooltip.style.fontSize = '12px';
+            tooltip.style.pointerEvents = 'none';
+            tooltip.style.zIndex = '1000';
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY - 10) + 'px';
+            tooltip.id = 'temp-tooltip';
+
+            var existingTooltip = document.getElementById('temp-tooltip');
+            if (existingTooltip) {
+                existingTooltip.remove();
+            }
+
+            document.body.appendChild(tooltip);
+        }
+
+        function hideTooltip() {
+            var tooltip = document.getElementById('temp-tooltip');
+            if (tooltip) {
+                tooltip.remove();
+            }
+        }
+
         function updateCoordinateDisplay() {
             if (!selectedNode) return;
 
@@ -625,7 +830,6 @@ def generate_fixed_interactive_html():
             updateCurrentCoordinates();
         }
 
-        // 更新当前坐标
         function updateCurrentCoordinates() {
             if (!selectedNode) return;
 
@@ -644,7 +848,6 @@ def generate_fixed_interactive_html():
             }
         }
 
-        // 清除节点选择
         function clearNodeSelection() {
             selectedNode = null;
             d3.selectAll(".node").classed("selected", false);
@@ -655,7 +858,15 @@ def generate_fixed_interactive_html():
             updateStatus("🔄 已清除节点选择 - 点击节点查看坐标信息");
         }
 
-        // 测试坐标功能
+        function clearAllSelections() {
+            clearNodeSelection();
+            clearPipeSelection();
+            highlightedLinks.clear();
+            updateLinkHighlights();
+            d3.selectAll(".node").classed("leak", false);
+            updateStatus("🧹 已清除所有选择状态");
+        }
+
         function testCoordinates() {
             if (!selectedNode) {
                 alert("请先选择一个节点");
@@ -679,7 +890,6 @@ def generate_fixed_interactive_html():
             alert(info);
         }
 
-        // 其他功能函数
         function onLeakTypeChange() {
             var leakType = document.getElementById("leakType").value;
             var nodeGroup = document.getElementById("nodeInputGroup");
@@ -716,7 +926,6 @@ def generate_fixed_interactive_html():
                     return;
                 }
 
-                // 找出连接到该节点的所有管道
                 var connectedLinks = links.filter(function(link) {
                     var sourceId = link.source.id || link.source;
                     var targetId = link.target.id || link.target;
@@ -728,8 +937,6 @@ def generate_fixed_interactive_html():
                     var targetId = link.target.id || link.target;
                     return [sourceId, targetId];
                 });
-
-                console.log('节点漏损 - 节点', leakTarget, ', 影响管道:', leakNodePairs);
 
             } else if (leakType === "管道漏损" || leakType === "爆管") {
                 leakTarget = document.getElementById("leakPipe").value.trim();
@@ -747,28 +954,17 @@ def generate_fixed_interactive_html():
                 var sourceId = targetPipe.source.id || targetPipe.source;
                 var targetId = targetPipe.target.id || targetPipe.target;
                 leakNodePairs = [[sourceId, targetId]];
-
-                console.log(leakType + ' - 管道', leakTarget, ', 节点对:', leakNodePairs);
             }
 
             var failValve = document.getElementById("failValve").value.trim();
-
             updateStatus("🔍 正在执行 " + leakType + " 隔离分析 - " + leakTarget + "...");
 
-            // 重置视图
             resetVisualization();
-
-            // 模拟调用隔离算法
             var result = await simulateIsolationAlgorithm(leakNodePairs, leakType, failValve);
-
-            // 显示结果
             displayIsolationResult(result, leakTarget, leakType);
         }
 
-        // 模拟隔离算法（完整版本）
         async function simulateIsolationAlgorithm(leakNodePairs, leakType, failValve) {
-            console.log('模拟隔离算法:', {leakNodePairs: leakNodePairs, leakType: leakType, failValve: failValve});
-
             var needCloseValves = [];
             var cutEdges = [];
             var affectedPipes = [];
@@ -776,7 +972,6 @@ def generate_fixed_interactive_html():
             var isolatable = true;
 
             if (leakType === "爆管") {
-                // 爆管：无条件隔离
                 var leakPair = leakNodePairs[0];
                 var leakPipe = links.find(function(link) {
                     var sourceId = link.source.id || link.source;
@@ -797,7 +992,6 @@ def generate_fixed_interactive_html():
                 recommendation = "爆管紧急隔离，相关用户（包括高等级用户）将临时断水，请立即抢修";
 
             } else {
-                // 普通漏损/节点漏损：检查业务规则
                 for (var i = 0; i < leakNodePairs.length; i++) {
                     var pair = leakNodePairs[i];
                     var start = pair[0];
@@ -808,7 +1002,6 @@ def generate_fixed_interactive_html():
                         var node = nodes.find(function(n) { return n.id === nodeId; });
                         if (!node) continue;
 
-                        // 计算输入管道数（不含当前漏损管道）
                         var inputPipes = links.filter(function(link) {
                             var targetId = link.target.id || link.target;
                             var sourceId = link.source.id || link.source;
@@ -817,41 +1010,36 @@ def generate_fixed_interactive_html():
                                      (sourceId === end && targetId === start));
                         });
 
-                        if (node.level === 'A') {
-                            if (inputPipes.length === 0) {
-                                isolatable = false;
-                                recommendation = "A级建筑" + nodeId + "仅有一条供水，禁止隔离，必须保障供水";
-                                return {
-                                    need_close_valves: [],
-                                    lost_valves: failValve ? [failValve] : [],
-                                    isolatable: false,
-                                    cut_edges: [],
-                                    affected_pipes: [],
-                                    leak_type: leakType,
-                                    recommendation: recommendation,
-                                    affected_pipes_count: 0
-                                };
-                            }
-                        } else if (node.level === 'B') {
-                            if (inputPipes.length === 0) {
-                                isolatable = false;
-                                recommendation = "B级建筑" + nodeId + "仅有一条供水，不建议隔离，建议优先抢修";
-                                return {
-                                    need_close_valves: [],
-                                    lost_valves: failValve ? [failValve] : [],
-                                    isolatable: false,
-                                    cut_edges: [],
-                                    affected_pipes: [],
-                                    leak_type: leakType,
-                                    recommendation: recommendation,
-                                    affected_pipes_count: 0
-                                };
-                            }
+                        if (node.level === 'A' && inputPipes.length === 0) {
+                            isolatable = false;
+                            recommendation = "A级建筑" + nodeId + "仅有一条供水，禁止隔离，必须保障供水";
+                            return {
+                                need_close_valves: [],
+                                lost_valves: failValve ? [failValve] : [],
+                                isolatable: false,
+                                cut_edges: [],
+                                affected_pipes: [],
+                                leak_type: leakType,
+                                recommendation: recommendation,
+                                affected_pipes_count: 0
+                            };
+                        } else if (node.level === 'B' && inputPipes.length === 0) {
+                            isolatable = false;
+                            recommendation = "B级建筑" + nodeId + "仅有一条供水，不建议隔离，建议优先抢修";
+                            return {
+                                need_close_valves: [],
+                                lost_valves: failValve ? [failValve] : [],
+                                isolatable: false,
+                                cut_edges: [],
+                                affected_pipes: [],
+                                leak_type: leakType,
+                                recommendation: recommendation,
+                                affected_pipes_count: 0
+                            };
                         }
                     }
                 }
 
-                // 如果通过业务规则检查，执行隔离
                 for (var i = 0; i < leakNodePairs.length; i++) {
                     var pair = leakNodePairs[i];
                     var start = pair[0];
@@ -877,7 +1065,6 @@ def generate_fixed_interactive_html():
                 recommendation = isolatable ? "隔离成功，影响最小" : "无法隔离，需施工切断";
             }
 
-            // 去重
             needCloseValves = needCloseValves.filter(function(value, index, self) {
                 return self.indexOf(value) === index;
             });
@@ -897,7 +1084,6 @@ def generate_fixed_interactive_html():
         function displayIsolationResult(result, leakTarget, leakType) {
             currentIsolationResult = result;
 
-            // 高亮相关管道
             if (result.affected_pipes && result.affected_pipes.length > 0) {
                 result.affected_pipes.forEach(function(pipeId) {
                     highlightedLinks.add(pipeId);
@@ -905,12 +1091,10 @@ def generate_fixed_interactive_html():
                 updateLinkHighlights();
             }
 
-            // 高亮目标节点（如果是节点漏损）
             if (leakType === "节点漏损") {
                 d3.selectAll(".node")
                     .classed("leak", function(d) { return d.id === leakTarget; });
             } else {
-                // 高亮管道的两端节点
                 if (result.cut_edges && result.cut_edges.length > 0) {
                     result.cut_edges.forEach(function(edge) {
                         var sourceId = edge[0];
@@ -923,10 +1107,7 @@ def generate_fixed_interactive_html():
                 }
             }
 
-            // 显示详细结果信息
-            var targetInfo = leakType === "节点漏损" ? 
-                "节点: " + leakTarget : 
-                "管道: " + leakTarget;
+            var targetInfo = leakType === "节点漏损" ? "节点: " + leakTarget : "管道: " + leakTarget;
 
             var resultHtml = 
                 "<div class='result-panel'>" +
@@ -952,7 +1133,6 @@ def generate_fixed_interactive_html():
 
             resultHtml += "<strong>建议:</strong> " + result.recommendation + "</div>";
 
-            // 添加管道详情表格
             if (result.affected_pipes && result.affected_pipes.length > 0) {
                 resultHtml += "<h5 style='margin-top: 15px; margin-bottom: 10px;'>📋 需关闭的管道详情</h5>";
                 resultHtml += "<table class='coordinate-table'>";
@@ -989,21 +1169,12 @@ def generate_fixed_interactive_html():
         }
 
         function showAllPipes() {
-            highlightedLinks.clear(); // 先清空
+            highlightedLinks.clear();
             links.forEach(function(link) {
                 highlightedLinks.add(link.id);
             });
             updateLinkHighlights();
             updateStatus("👁️ 显示所有 " + links.length + " 条管道");
-        }
-
-        function toggleLinkHighlight(linkId) {
-            if (highlightedLinks.has(linkId)) {
-                highlightedLinks.delete(linkId);
-            } else {
-                highlightedLinks.add(linkId);
-            }
-            updateLinkHighlights();
         }
 
         function updateLinkHighlights() {
@@ -1026,7 +1197,6 @@ def generate_fixed_interactive_html():
             }
         }
 
-        // 拖拽函数
         function dragstarted(event, d) {
             if (!event.active) simulation.alphaTarget(0.3).restart();
             d.fx = d.x;
@@ -1037,7 +1207,6 @@ def generate_fixed_interactive_html():
             d.fx = event.x;
             d.fy = event.y;
 
-            // 如果拖拽的是选中节点，实时更新坐标显示
             if (selectedNode && selectedNode.id === d.id) {
                 updateCurrentCoordinates();
             }
@@ -1049,18 +1218,20 @@ def generate_fixed_interactive_html():
             d.fy = null;
         }
 
-        // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>"""
 
-    # 保存HTML文件
-    output_file = "interactive_network_visualization_fixed.html"
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(html_template)
+    # 组合完整HTML内容
+    html_content = html_start + js_content
 
-    print(f"✅ 修复版交互式可视化已生成: {output_file}")
+    # 保存HTML文件
+    output_file = "interactive_network_visualization_complete.html"
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    print(f"✅ 完整版交互式可视化已生成: {output_file}")
     print(f"📊 数据统计: {len(nodes)} 个节点, {len(links)} 条管道, {len(valves)} 个阀门")
 
     # 尝试在浏览器中打开
@@ -1077,7 +1248,7 @@ def generate_fixed_interactive_html():
 
 def create_integrated_test():
     """创建集成测试版本"""
-    print("🚀 创建修复版集成版本...")
+    print("🚀 创建完整版集成版本...")
 
     # 读取数据并集成隔离算法
     conn = sqlite3.connect("my_database.db")
@@ -1098,38 +1269,40 @@ def create_integrated_test():
 
     # 生成交互式HTML
     if generate_fixed_interactive_html():
-        print("🎉 修复版集成版本创建成功！")
-        print("\n📋 修复内容:")
-        print("✅ 解决了节点点击无反应的问题")
-        print("✅ 简化了JavaScript模板字符串，避免语法错误")
-        print("✅ 改进了事件处理机制")
-        print("✅ 增加了调试信息和错误处理")
-        print("✅ 优化了界面布局，右侧面板显示信息")
-        print("\n📋 功能特性:")
-        print("🎯 节点点击选择 - 绿色高亮显示")
-        print("📍 三种坐标显示:")
-        print("  • 数据库原始坐标")
-        print("  • D3计算坐标")
-        print("  • 当前屏幕坐标（考虑缩放和平移）")
-        print("🔧 测试坐标功能 - 弹窗显示详细坐标信息")
-        print("🧹 清除选择功能")
-        print("🎮 完整的隔离分析功能")
-        print("\n📋 使用方法:")
-        print("1. 浏览器会自动打开交互式界面")
-        print("2. 点击左侧网络图中的任意节点")
-        print("3. 右侧面板会显示节点信息和坐标")
-        print("4. 可以拖拽节点观察坐标变化")
-        print("5. 使用'测试坐标'按钮查看详细信息")
+        print("🎉 完整版集成版本创建成功！")
+        print("\n📋 完整功能清单:")
+        print("✅ 节点功能:")
+        print("  • 点击节点查看详细信息和坐标")
+        print("  • 绿色高亮选中效果")
+        print("  • 三种坐标类型显示（数据库/D3/屏幕）")
+        print("  • 实时坐标更新（拖拽和缩放时）")
+        print("✅ 管道功能:")
+        print("  • 点击管道查看详细信息和阀门")
+        print("  • 蓝色高亮选中效果")
+        print("  • 阀门状态显示（正常/故障）")
+        print("  • 管道连接节点高亮")
+        print("  • 鼠标悬停显示工具提示")
+        print("✅ 隔离分析功能:")
+        print("  • 完整的业务规则检查（A级/B级保护）")
+        print("  • 管道标红高亮（需关闭的管道）")
+        print("  • 节点标红闪烁（漏损点）")
+        print("  • 详细的阀门和管道列表")
+        print("  • 管道-阀门对应关系表格")
+        print("✅ 交互控制:")
+        print("  • 智能选择切换（点击节点清除管道选择）")
+        print("  • 全局清除选择功能")
+        print("  • 拖拽节点、缩放视图")
+        print("  • 显示所有管道、重置视图")
         return True
     else:
         return False
 
 
 if __name__ == "__main__":
-    print("🔧 修复版交互式可视化生成器")
+    print("🔧 完整版交互式可视化生成器")
     print("=" * 50)
 
-    choice = input("选择模式:\n1. 生成修复版交互式HTML\n2. 创建修复版集成测试\n请输入 (1-2): ").strip()
+    choice = input("选择模式:\n1. 生成完整版交互式HTML\n2. 创建完整版集成测试\n请输入 (1-2): ").strip()
 
     if choice == '1':
         generate_fixed_interactive_html()
