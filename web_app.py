@@ -81,7 +81,7 @@ def index():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>供水网络交互式可视化 - 真实算法版</title>
+    <title>供水网络交互式可视化 </title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <style>
         body {{
@@ -372,8 +372,8 @@ def index():
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚰 供水网络交互式可视化系统（真实算法版）</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">节点: {len(nodes)} | 管道: {len(links)} | 阀门: {len(valves)} | ✨ 已连接真实隔离算法</p>
+            <h1>🚰 供水网络交互式可视化系统</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">节点: {len(nodes)} | 管道: {len(links)} | 阀门: {len(valves)} | </p>
         </div>
 
         <div class="controls">
@@ -401,7 +401,7 @@ def index():
                 <input type="text" id="failValve" placeholder="如: V0001 (可选)">
             </div>
 
-            <button onclick="performRealIsolation()">🔍 执行隔离分析（真实算法）</button>
+            <button onclick="performRealIsolation()">🔍 执行隔离分析</button>
             <button onclick="resetVisualization()">🔄 重置视图</button>
             <button onclick="showAllPipes()">👁️ 显示所有管道</button>
             <button onclick="clearAllSelections()">🧹 清除选择</button>
@@ -487,7 +487,7 @@ def index():
         </div>
 
         <div class="status" id="status">
-            ✅ 系统已加载 - 真实隔离算法已连接
+            ✅ 系统已加载 
         </div>
     </div>
 
