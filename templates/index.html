@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>供水管网隔离分析系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            overflow: hidden;
+        }
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+        .control-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 350px;
+        }
+        .control-panel h3 {
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .control-section {
+            margin: 20px 0;
+        }
+        .control-section h4 {
+            margin-bottom: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+            color: #555;
+        }
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .btn {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #45a049;
+        }
+        .btn-warning {
+            background: #ff9800;
+            color: white;
+        }
+        .btn-warning:hover {
+            background: #e68900;
+        }
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #da190b;
+        }
+        .legend {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 13px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 2px solid #fff;
+            box-shadow: 0 0 3px rgba(0,0,0,0.3);
+        }
+        .result-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 400px;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+        }
+        .result-panel.active {
+            display: block;
+        }
+        .result-panel h4 {
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 10px;
+        }
+        .result-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .result-item strong {
+            color: #2196F3;
+        }
+        .close-btn {
+            float: right;
+            cursor: pointer;
+            font-size: 20px;
+            color: #999;
+        }
+        .close-btn:hover {
+            color: #333;
+        }
+        .info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            min-width: 200px;
+        }
+        .info-panel h4 {
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 14px;
+        }
+        .info-item {
+            margin: 5px 0;
+            font-size: 13px;
+        }
+        .valve-icon {
+            background: none !important;
+            border: none !important;
+            font-size: 16px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="info-panel">
+        <h4>📊 系统信息</h4>
+        <div class="info-item">节点数: <span id="nodeCount">-</span></div>
+        <div class="info-item">管道数: <span id="pipeCount">-</span></div>
+        <div class="info-item">阀门数: <span id="valveCount">-</span></div>
+    </div>
+
+    <div class="control-panel">
+    <h3>🔧 供水管网隔离分析</h3>
+
+    <!-- 搜索功能 -->
+    <div class="control-section">
+        <h4>快速搜索</h4>
+        <div class="input-group">
+            <input type="text" id="pipeSearch" placeholder="搜索管道ID..." onkeypress="if(event.key==='Enter')searchPipe()">
+            <button class="btn btn-primary" onclick="searchPipe()" style="margin-top:5px;padding:6px;">搜索管道</button>
+        </div>
+        <div class="input-group" style="margin-top:10px;">
+            <input type="text" id="nodeSearch" placeholder="搜索节点ID/名称..." onkeypress="if(event.key==='Enter')searchNode()">
+            <button class="btn btn-primary" onclick="searchNode()" style="margin-top:5px;padding:6px;">搜索节点</button>
+        </div>
+    </div>
+
+    <div class="control-section">
+        <h4>分析类型</h4>
+        <div class="input-group">
+            <select id="analysisType" onchange="switchAnalysisType()">
+                <option value="burst">爆管隔离分析</option>
+                <option value="leak">管道泄漏隔离</option>
+                <option value="node">节点泄漏隔离</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- 爆管隔离 -->
+    <div class="control-section" id="burstSection">
+        <div class="input-group">
+            <label>选择管道:</label>
+            <select id="burstPipeSelect">
+                <option value="">-- 点击地图或选择管道 --</option>
+            </select>
+        </div>
+        <button class="btn btn-danger" onclick="analyzeBurst()">开始分析</button>
+    </div>
+
+    <!-- 管道泄漏 -->
+    <div class="control-section" id="leakSection" style="display: none;">
+        <div class="input-group">
+            <label>选择管道:</label>
+            <select id="leakPipeSelect">
+                <option value="">-- 点击地图或选择管道 --</option>
+            </select>
+        </div>
+        <button class="btn btn-warning" onclick="analyzeLeak()">开始分析</button>
+    </div>
+
+    <!-- 节点泄漏 -->
+    <div class="control-section" id="nodeSection" style="display: none;">
+        <div class="input-group">
+            <label>选择节点:</label>
+            <select id="nodeSelect">
+                <option value="">-- 点击地图或选择节点 --</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="analyzeNode()">开始分析</button>
+    </div>
+
+    <div class="legend">
+        <h4>图例说明</h4>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ff4444;"></div>
+            <span>A级 - 水厂</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffaa00;"></div>
+            <span>B级 - 重要设施</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #4444ff;"></div>
+            <span>C级 - 居民用户</span>
+        </div>
+    </div>
+</div>
+    <div class="result-panel" id="resultPanel">
+        <span class="close-btn" onclick="closeResult()">×</span>
+        <h4 id="resultTitle">分析结果</h4>
+        <div id="resultContent"></div>
+    </div>
+
+    <script>
+    let map;
+    let nodes = [];
+    let pipes = [];
+    let valves = [];
+    let markers = {};
+    let polylines = {};  // 存储管道对象
+    let polylines = {};
+
+    function getLevelColor(level) {
+        const colors = {
+            'A': '#ff4444',
+            'B': '#ffaa00',
+            'C': '#4444ff'
+        };
+        return colors[level] || '#999999';
+    }
+
+    function switchAnalysisType() {
+        const type = document.getElementById('analysisType').value;
+
+        document.getElementById('burstSection').style.display = 'none';
+        document.getElementById('leakSection').style.display = 'none';
+        document.getElementById('nodeSection').style.display = 'none';
+
+        if (type === 'burst') {
+            document.getElementById('burstSection').style.display = 'block';
+        } else if (type === 'leak') {
+            document.getElementById('leakSection').style.display = 'block';
+        } else if (type === 'node') {
+            document.getElementById('nodeSection').style.display = 'block';
+        }
+    }
+
+    async function loadData() {
+        try {
+            const nodesResponse = await fetch('/api/nodes');
+            nodes = await nodesResponse.json();
+
+            const pipesResponse = await fetch('/api/pipes');
+            pipes = await pipesResponse.json();
+
+            const valvesResponse = await fetch('/api/valves');
+            valves = await valvesResponse.json();
+
+            document.getElementById('nodeCount').textContent = nodes.length;
+            document.getElementById('pipeCount').textContent = pipes.length;
+            document.getElementById('valveCount').textContent = valves.length;
+
+            populateSelects();
+            drawNetwork();
+        } catch (error) {
+            console.error('数据加载失败:', error);
+            alert('数据加载失败,请检查数据库连接');
+        }
+    }
+
+    function populateSelects() {
+    const burstPipeSelect = document.getElementById('burstPipeSelect');
+    const leakPipeSelect = document.getElementById('leakPipeSelect');
+    const nodeSelect = document.getElementById('nodeSelect');
+
+    pipes.forEach(pipe => {
+        const option1 = document.createElement('option');
+        option1.value = pipe.pipe_id;  // 改成小写
+        option1.textContent = `管道 ${pipe.pipe_id}`;
+        burstPipeSelect.appendChild(option1);
+
+        const option2 = document.createElement('option');
+        option2.value = pipe.pipe_id;  // 改成小写
+        option2.textContent = `管道 ${pipe.pipe_id}`;
+        leakPipeSelect.appendChild(option2);
+    });
+
+    nodes.forEach(node => {
+        const option = document.createElement('option');
+        option.value = node.Node_ID;
+        option.textContent = `${node.Node_Name} (${node.Node_ID})`;
+        nodeSelect.appendChild(option);
+    });
+}
+
+    function drawNetwork() {
+    // 绘制管道 - 添加点击事件
+    pipes.forEach(pipe => {
+        const startNode = nodes.find(n => n.Node_ID === pipe.start_node_id);
+        const endNode = nodes.find(n => n.Node_ID === pipe.end_node_id);
+
+        if (startNode && endNode &&
+            startNode.Latitude && startNode.Longitude &&
+            endNode.Latitude && endNode.Longitude) {
+
+            const polyline = L.polyline([
+                [startNode.Latitude, startNode.Longitude],
+                [endNode.Latitude, endNode.Longitude]
+            ], {
+                color: '#666',
+                weight: 3,
+                opacity: 0.7
+            }).addTo(map);
+
+            polylines[pipe.pipe_id] = polyline;
+
+            // 点击管道自动填充
+            polyline.on('click', function() {
+                const analysisType = document.getElementById('analysisType').value;
+                if (analysisType === 'burst') {
+                    document.getElementById('burstPipeSelect').value = pipe.pipe_id;
+                } else if (analysisType === 'leak') {
+                    document.getElementById('leakPipeSelect').value = pipe.pipe_id;
+                }
+                // 高亮选中的管道
+                resetHighlight();
+                polyline.setStyle({ color: '#00ff00', weight: 5, opacity: 1 });
+            });
+
+            polyline.bindPopup(`
+                <strong>管道 ${pipe.pipe_id}</strong><br>
+                起点: ${startNode.Node_Name}<br>
+                终点: ${endNode.Node_Name}<br>
+                直径: ${pipe.diameter}mm<br>
+                状态: ${pipe.status}<br>
+                <button onclick="selectPipe('${pipe.pipe_id}')" style="margin-top:5px;padding:5px 10px;background:#4CAF50;color:white;border:none;border-radius:3px;cursor:pointer;">选择此管道</button>
+            `);
+        }
+    });
+
+    // 绘制节点 - 添加点击事件
+    nodes.forEach(node => {
+        if (node.Latitude && node.Longitude) {
+            const marker = L.circleMarker([node.Latitude, node.Longitude], {
+                radius: 8,
+                fillColor: getLevelColor(node.Level),
+                color: '#fff',
+                weight: 2,
+                fillOpacity: 0.9
+            }).addTo(map);
+
+            markers[node.Node_ID] = marker;
+
+            // 点击节点自动填充
+            marker.on('click', function() {
+                const analysisType = document.getElementById('analysisType').value;
+                if (analysisType === 'node') {
+                    document.getElementById('nodeSelect').value = node.Node_ID;
+                }
+                // 高亮选中的节点
+                resetHighlight();
+                marker.setStyle({ color: '#00ff00', weight: 4 });
+            });
+
+            marker.bindPopup(`
+                <strong>${node.Node_Name}</strong><br>
+                节点ID: ${node.Node_ID}<br>
+                类型: ${node.Node_Type}<br>
+                等级: ${node.Level}<br>
+                坐标: ${node.Latitude.toFixed(4)}, ${node.Longitude.toFixed(4)}<br>
+                <button onclick="selectNode('${node.Node_ID}')" style="margin-top:5px;padding:5px 10px;background:#4CAF50;color:white;border:none;border-radius:3px;cursor:pointer;">选择此节点</button>
+            `);
+        }
+    });
+
+    // 阀门部分不变
+    valves.forEach(valve => {
+        const pipeData = pipes.find(p => p.pipe_id === valve.pipe_id);
+        if (pipeData) {
+            const startNode = nodes.find(n => n.Node_ID === pipeData.start_node_id);
+            const endNode = nodes.find(n => n.Node_ID === pipeData.end_node_id);
+
+            if (startNode && endNode &&
+                startNode.Latitude && startNode.Longitude &&
+                endNode.Latitude && endNode.Longitude) {
+
+                const lat = (startNode.Latitude + endNode.Latitude) / 2;
+                const lng = (startNode.Longitude + endNode.Longitude) / 2;
+
+                const valveMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'valve-icon',
+                        html: '🔧',
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map);
+
+                valveMarker.bindPopup(`
+                    <strong>阀门 ${valve.valve_id}</strong><br>
+                    管道: ${valve.pipe_id}<br>
+                    状态: ${valve.status}
+                `);
+            }
+        }
+    });
+
+    const validNodes = nodes.filter(n => n.Latitude && n.Longitude);
+    if (validNodes.length > 0) {
+        const bounds = L.latLngBounds(validNodes.map(n => [n.Latitude, n.Longitude]));
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
+}
+
+    async function analyzeBurst() {
+        const pipeId = document.getElementById('burstPipeSelect').value;
+        if (!pipeId) {
+            alert('请选择管道');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/isolate/burst', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pipe_id: pipeId })
+            });
+
+            const result = await response.json();
+            displayResult('爆管隔离分析', result);
+            highlightResult(result);
+        } catch (error) {
+            console.error('分析失败:', error);
+            alert('分析失败');
+        }
+    }
+
+    async function analyzeLeak() {
+        const pipeId = document.getElementById('leakPipeSelect').value;
+        if (!pipeId) {
+            alert('请选择管道');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/isolate/leak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pipe_id: pipeId })
+            });
+
+            const result = await response.json();
+            displayResult('管道泄漏隔离分析', result);
+            highlightResult(result);
+        } catch (error) {
+            console.error('分析失败:', error);
+            alert('分析失败');
+        }
+    }
+
+    async function analyzeNode() {
+        const nodeId = document.getElementById('nodeSelect').value;
+        if (!nodeId) {
+            alert('请选择节点');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/isolate/node', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ node_id: nodeId })
+            });
+
+            const result = await response.json();
+            displayResult('节点泄漏隔离分析', result);
+            highlightResult(result);
+        } catch (error) {
+            console.error('分析失败:', error);
+            alert('分析失败');
+        }
+    }
+
+    function displayResult(title, result) {
+    const panel = document.getElementById('resultPanel');
+    const titleElem = document.getElementById('resultTitle');
+    const contentElem = document.getElementById('resultContent');
+
+    titleElem.textContent = title;
+
+    let html = '';
+    html += `<div class="result-item"><strong>隔离策略:</strong> ${result.isolation_strategy}</div>`;
+
+    if (result.valves_to_close && result.valves_to_close.length > 0) {
+        html += `<div class="result-item">`;
+        html += `<strong>需要关闭的阀门 (${result.valves_to_close.length}个):</strong><br>`;
+        result.valves_to_close.forEach(v => {
+            html += `• 阀门 ${v.valve_id} (管道 ${v.pipe_id})<br>`;  // 改成小写
+        });
+        html += `</div>`;
+    }
+
+    if (result.affected_buildings && result.affected_buildings.length > 0) {
+        html += `<div class="result-item">`;
+        html += `<strong>受影响建筑 (${result.affected_buildings.length}个):</strong><br>`;
+        result.affected_buildings.forEach(b => {
+            html += `• ${b.Node_Name} (等级${b.Level})<br>`;
+        });
+        html += `</div>`;
+    }
+
+    contentElem.innerHTML = html;
+    panel.classList.add('active');
+}
+
+   function highlightResult(result) {
+    resetHighlight();
+
+    // 高亮受影响的管道
+    if (result.affected_pipes && result.affected_pipes.length > 0) {
+        result.affected_pipes.forEach(pipeId => {
+            if (polylines[pipeId]) {
+                polylines[pipeId].setStyle({
+                    color: '#ff0000',
+                    weight: 5,
+                    opacity: 1
+                });
+            }
+        });
+    }
+
+    // 高亮受影响的节点
+    if (result.affected_buildings) {
+        result.affected_buildings.forEach(building => {
+            if (markers[building.Node_ID]) {
+                markers[building.Node_ID].setStyle({
+                    color: '#ff0000',
+                    weight: 4
+                });
+            }
+        });
+    }
+}
+
+    function closeResult() {
+        document.getElementById('resultPanel').classList.remove('active');
+        resetHighlight();
+    }
+
+
+    function resetHighlight() {
+    // 重置所有管道样式
+    Object.values(polylines).forEach(polyline => {
+        polyline.setStyle({
+            color: '#666',
+            weight: 3,
+            opacity: 0.7
+        });
+    });
+
+    // 重置所有节点样式
+    Object.values(markers).forEach(marker => {
+        marker.setStyle({
+            fillColor: marker.options.fillColor,
+            color: '#fff',
+            weight: 2
+        });
+    });
+}
+    function initVisualization() {
+        map = L.map('map').setView([30.6597, 104.0657], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        loadData();
+    }
+
+    // 从弹窗选择管道
+function selectPipe(pipeId) {
+    const analysisType = document.getElementById('analysisType').value;
+    if (analysisType === 'burst') {
+        document.getElementById('analysisType').value = 'burst';
+        switchAnalysisType();
+        document.getElementById('burstPipeSelect').value = pipeId;
+    } else if (analysisType === 'leak') {
+        document.getElementById('analysisType').value = 'leak';
+        switchAnalysisType();
+        document.getElementById('leakPipeSelect').value = pipeId;
+    } else {
+        // 默认选择爆管分析
+        document.getElementById('analysisType').value = 'burst';
+        switchAnalysisType();
+        document.getElementById('burstPipeSelect').value = pipeId;
+    }
+
+    // 高亮管道
+    resetHighlight();
+    if (polylines[pipeId]) {
+        polylines[pipeId].setStyle({ color: '#00ff00', weight: 5, opacity: 1 });
+    }
+
+    map.closePopup();
+}
+
+// 从弹窗选择节点
+function selectNode(nodeId) {
+    document.getElementById('analysisType').value = 'node';
+    switchAnalysisType();
+    document.getElementById('nodeSelect').value = nodeId;
+
+    // 高亮节点
+    resetHighlight();
+    if (markers[nodeId]) {
+        markers[nodeId].setStyle({ color: '#00ff00', weight: 4 });
+    }
+
+    map.closePopup();
+}
+
+// 搜索管道
+function searchPipe() {
+    const keyword = document.getElementById('pipeSearch').value.toLowerCase();
+    const results = pipes.filter(p =>
+        p.pipe_id.toLowerCase().includes(keyword)
+    );
+
+    if (results.length > 0) {
+        const pipe = results[0];
+        const polyline = polylines[pipe.pipe_id];
+        if (polyline) {
+            map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+            polyline.openPopup();
+            resetHighlight();
+            polyline.setStyle({ color: '#00ff00', weight: 5, opacity: 1 });
+        }
+    } else {
+        alert('未找到匹配的管道');
+    }
+}
+
+// 搜索节点
+function searchNode() {
+    const keyword = document.getElementById('nodeSearch').value.toLowerCase();
+    const results = nodes.filter(n =>
+        n.Node_ID.toLowerCase().includes(keyword) ||
+        n.Node_Name.toLowerCase().includes(keyword)
+    );
+
+    if (results.length > 0) {
+        const node = results[0];
+        const marker = markers[node.Node_ID];
+        if (marker) {
+            map.setView([node.Latitude, node.Longitude], 16);
+            marker.openPopup();
+            resetHighlight();
+            marker.setStyle({ color: '#00ff00', weight: 4 });
+        }
+    } else {
+        alert('未找到匹配的节点');
+    }
+}
+
+    window.onload = initVisualization;
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@ import sqlite3
 app = Flask(__name__)
 
 # 配置数据库路径
-DATABASE_PATH = 'D:/9090/guandao/1.db'
+DATABASE_PATH = 'F:/python/guandao/1.db'
 
 
 @app.route('/')
@@ -613,17 +613,26 @@ def index():
                     existingNodes.forEach(node => {
                        // Leaflet 期望 (纬度, 经度)。由于后端已将 location_x 设为纬度，location_y 设为经度，所以顺序是 (x, y)
                        const marker = L.marker([node.location_x, node.location_y], { 
-                            icon: getNodeIcon(node.level)
-                        }).addTo(map);
+    icon: getNodeIcon(node.level)
+}).addTo(map);
 
-                        marker.bindPopup(`
-                            <b>${node.node_id}</b><br>
-                            ${node.node_name}<br>
-                            类型: ${node.node_type}<br>
-                            等级: ${node.level}
-                        `);
+marker.bindPopup(`
+    <b>${node.node_id}</b><br>
+    ${node.node_name}<br>
+    类型: ${node.node_type}<br>
+    等级: ${node.level}
+`);
 
-                        nodeMarkers.push(marker);
+// 添加点击事件
+marker.on('click', function(e) {
+    if (pipeMode) {
+        L.DomEvent.stopPropagation(e);  // 阻止冒泡
+        handlePipeNodeClick(node.node_id);
+    }
+    // 不在管道模式时,popup会自动显示
+});
+
+nodeMarkers.push(marker);
                     });
 
                     // 显示节点列表
