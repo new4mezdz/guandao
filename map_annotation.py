@@ -4,7 +4,7 @@ import sqlite3
 app = Flask(__name__)
 
 # 配置数据库路径
-DATABASE_PATH = 'F:/python/guandao/1.db'
+DATABASE_PATH = 'D:/9090/guandao/1.db'
 
 
 @app.route('/')
@@ -17,6 +17,8 @@ def index():
     <title>管道节点地图标注</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+    
     <style>
         body {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
@@ -421,6 +423,23 @@ def index():
                         weight: 4,
                         dashArray: '10, 5'
                     }).addTo(map);
+                    
+                    // 添加箭头装饰器
+const decorator = L.polylineDecorator(tempLine, {
+    patterns: [{
+        offset: '50%',
+        repeat: 0,
+        symbol: L.Symbol.arrowHead({
+            pixelSize: 15,
+            polygon: false,
+            pathOptions: {
+                stroke: true,
+                weight: 3,
+                color: 'red'
+            }
+        })
+    }]
+}).addTo(map);
 
                     pipeClickCount = 0;
                     updateStatus('✅ 已选择管道: ' + pipeStartNode.node_id + ' → ' + pipeEndNode.node_id, 'success');

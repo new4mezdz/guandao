@@ -37,6 +37,101 @@ def get_nodes():
         return jsonify({'error': str(e)}), 500
 
 
+# 更新节点位置接口
+@app.route('/api/update_node_position', methods=['POST'])
+def update_node_position():
+    try:
+        data = request.get_json()
+        node_id = data.get('node_id')
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+
+        if not node_id or latitude is None or longitude is None:
+            return jsonify({'success': False, 'error': '缺少必要参数'}), 400
+
+        conn = get_db_connection()
+
+        # 更新数据库中的节点位置
+        # 注意：location_y 对应 Latitude，location_x 对应 Longitude
+        conn.execute('''
+            UPDATE building_nodes 
+            SET location_y = ?, location_x = ?
+            WHERE Node_ID = ?
+        ''', (latitude, longitude, node_id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': '节点位置更新成功'})
+    except Exception as e:
+        print(f"Error in update_node_position: {traceback.format_exc()}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 添加新节点接口
+@app.route('/api/add_node', methods=['POST'])
+def add_node():
+    try:
+        data = request.get_json()
+        node_id = data.get('node_id')
+        node_name = data.get('node_name')
+        node_type = data.get('node_type')
+        level = data.get('level')
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+
+        if not node_id or not node_name or latitude is None or longitude is None:
+            return jsonify({'success': False, 'error': '缺少必要参数'}), 400
+
+        conn = get_db_connection()
+
+        # 插入新节点
+        # location_y 对应 Latitude，location_x 对应 Longitude
+        conn.execute('''
+            INSERT INTO building_nodes (Node_ID, Node_Name, Node_Type, Level, location_y, location_x)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (node_id, node_name, node_type, level, latitude, longitude))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': '节点添加成功'})
+    except Exception as e:
+        print(f"Error in add_node: {traceback.format_exc()}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 添加新管道接口
+@app.route('/api/add_pipe', methods=['POST'])
+def add_pipe():
+    try:
+        data = request.get_json()
+        pipe_id = data.get('pipe_id')
+        start_node_id = data.get('start_node_id')
+        end_node_id = data.get('end_node_id')
+        diameter = data.get('diameter', 0.5)
+        status = data.get('status', 'Open')
+
+        if not pipe_id or not start_node_id or not end_node_id:
+            return jsonify({'success': False, 'error': '缺少必要参数'}), 400
+
+        conn = get_db_connection()
+
+        # 插入新管道
+        conn.execute('''
+            INSERT INTO pipes (Pipe_ID, Start_Node_ID, End_Node_ID, Diameter, Status)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (pipe_id, start_node_id, end_node_id, diameter, status))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': '管道添加成功'})
+    except Exception as e:
+        print(f"Error in add_pipe: {traceback.format_exc()}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # /api/pipes
 @app.route('/api/pipes')
 def get_pipes():
@@ -56,6 +151,7 @@ def get_pipes():
     except Exception as e:
         print(f"Error in get_pipes: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
+
 
 # /api/valves
 @app.route('/api/valves')
@@ -115,13 +211,14 @@ def isolate_burst():
             'pipe_id': pipe_id,
             'valves_to_close': [dict(v) for v in valves],
             'affected_buildings': [dict(n) for n in affected_nodes],
-            'affected_pipes': [pipe_id],  # 添加这行
+            'affected_pipes': [pipe_id],
             'isolation_strategy': 'burst_pipe_emergency'
         }
         return jsonify(result)
     except Exception as e:
         print(f"Error in isolate_burst: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
+
 
 # /api/isolate/leak
 @app.route('/api/isolate/leak', methods=['POST'])
@@ -163,13 +260,14 @@ def isolate_leak():
             'pipe_id': pipe_id,
             'valves_to_close': [dict(v) for v in valves],
             'affected_buildings': [dict(n) for n in affected_nodes],
-            'affected_pipes': [pipe_id],  # 添加这行
+            'affected_pipes': [pipe_id],
             'isolation_strategy': 'pipe_leak_direct'
         }
         return jsonify(result)
     except Exception as e:
         print(f"Error in isolate_leak: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
+
 
 # /api/isolate/node
 @app.route('/api/isolate/node', methods=['POST'])
@@ -236,14 +334,13 @@ def isolate_node():
             'node_info': dict(node),
             'valves_to_close': [dict(v) for v in valves],
             'affected_buildings': [dict(n) for n in affected_nodes],
-            'affected_pipes': pipe_ids,  # 添加这行 - 使用前面获取的pipe_ids列表
+            'affected_pipes': pipe_ids,
             'isolation_strategy': 'node_leak_minimum_cut'
         }
         return jsonify(result)
     except Exception as e:
         print(f"Error in isolate_node: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
-
 
 
 if __name__ == '__main__':
