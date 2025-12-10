@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAO UI System Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        /* 模拟 SAO 的背景 */
+        .bg-game {
+            background: linear-gradient(rgba(0,0,0,0.3), rgba(0,0,0,0.3)),
+                        url('https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=2071&auto=format&fit=crop');
+            background-size: cover;
+            background-position: center;
+        }
+
+        /* 菜单容器动画 */
+        .menu-enter-active,
+        .menu-leave-active {
+            transition: all 0.3s ease;
+        }
+        .menu-enter-from,
+        .menu-leave-to {
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+        }
+
+        /* 子菜单展开动画 */
+        .submenu-enter-active,
+        .submenu-leave-active {
+            transition: all 0.2s ease-out;
+        }
+        .submenu-enter-from,
+        .submenu-leave-to {
+            opacity: 0;
+            transform: translateX(-10px);
+        }
+
+        /* 滚动条隐藏 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* 呼吸灯动画 */
+        @keyframes pulse-orange {
+            0%, 100% { box-shadow: 0 0 5px rgba(249, 115, 22, 0.5); }
+            50% { box-shadow: 0 0 20px rgba(249, 115, 22, 0.8); }
+        }
+        .animate-pulse-glow {
+            animation: pulse-orange 2s infinite;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="w-screen h-screen bg-game relative" @click="handleGlobalClick">
+
+    <div class="absolute top-4 left-4 flex items-center gap-3 opacity-90">
+        <div class="bg-gray-800/80 border border-gray-500 text-white px-3 py-1 rounded-sm text-sm font-mono">
+            <span class="text-green-400 font-bold">HP</span> ██████████ 12500 / 12500
+        </div>
+        <div class="text-white font-bold text-shadow shadow-black">
+            {{ username }} <span class="text-xs bg-yellow-500 text-black px-1 rounded">LV.96</span>
+        </div>
+    </div>
+
+    <div v-if="!isMenuOpen"
+         class="absolute bottom-20 left-1/2 transform -translate-x-1/2 text-center cursor-pointer group"
+         @click.stop="toggleMenu">
+        <div class="w-16 h-16 rounded-full bg-gray-200/20 backdrop-blur-sm border-2 border-white flex items-center justify-center group-hover:bg-orange-500/20 transition-all duration-300 animate-pulse-glow">
+            <i class="fa-solid fa-fingerprint text-3xl text-white opacity-80 group-hover:opacity-100"></i>
+        </div>
+        <div class="mt-2 text-white font-bold tracking-widest text-sm opacity-80">LINK START</div>
+    </div>
+
+    <transition name="menu">
+        <div v-if="isMenuOpen"
+             class="absolute top-[20%] left-[50%] transform -translate-x-[50%] flex flex-col items-center z-50"
+             @click.stop>
+
+            <div class="text-white text-xl font-light tracking-[0.3em] mb-4 border-b border-white/30 pb-1 w-full text-center">
+                MAIN MENU
+            </div>
+
+            <div class="flex items-start gap-4">
+                <div class="flex flex-col gap-4">
+                    <div v-for="category in menuData"
+                         :key="category.id"
+                         class="w-14 h-14 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 border-2"
+                         :class="activeCategory === category.id
+                            ? 'bg-orange-500 border-orange-300 shadow-[0_0_15px_rgba(249,115,22,0.6)] scale-110 text-white'
+                            : 'bg-gray-800/60 border-gray-500 text-gray-300 hover:bg-gray-700 hover:border-gray-300'"
+                         @mouseover="activeCategory = category.id">
+                        <i :class="category.icon" class="text-xl"></i>
+                    </div>
+                </div>
+
+                <transition name="submenu" mode="out-in">
+                    <div v-if="activeCategory" :key="activeCategory"
+                         class="w-64 flex flex-col gap-1 pt-2">
+
+                        <div class="bg-gray-900/80 border border-gray-500 rounded-t-sm px-3 py-2 text-gray-300 text-xs uppercase tracking-wider flex justify-between items-center backdrop-blur-md">
+                            <span>{{ getCurrentCategoryLabel() }}</span>
+                            <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                        </div>
+
+                        <div class="bg-gray-900/80 border-x border-b border-gray-500 backdrop-blur-md max-h-[300px] overflow-y-auto no-scrollbar">
+                            <div v-for="item in getCurrentSubItems()"
+                                 :key="item.label"
+                                 class="px-4 py-3 text-gray-200 text-sm border-b border-gray-700/50 hover:bg-white/10 hover:text-orange-400 cursor-pointer transition-colors flex items-center gap-3 group"
+                                 @click="handleAction(item.label)">
+                                <div class="w-1 h-full bg-transparent group-hover:bg-orange-500 absolute left-0"></div>
+                                <span class="w-6 text-center"><i :class="item.icon"></i></span>
+                                <span>{{ item.label }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+
+        </div>
+    </transition>
+
+</div>
+
+<script>
+const { createApp, ref } = Vue;
+
+createApp({
+    setup() {
+        const isMenuOpen = ref(false);
+        const activeCategory = ref('profile'); // 默认选中第一个
+        const username = ref('Hajimi-sama');
+
+        // 菜单数据定义
+        const menuData = [
+            {
+                id: 'profile',
+                label: 'EQUIPMENT',
+                icon: 'fa-solid fa-user',
+                items: [
+                    { label: '装备栏 (Equipment)', icon: 'fa-solid fa-shield-halved' },
+                    { label: '物品栏 (Items)', icon: 'fa-solid fa-box-open' },
+                    { label: '技能 (Skills)', icon: 'fa-solid fa-wand-magic-sparkles' }
+                ]
+            },
+            {
+                id: 'files',
+                label: 'STORAGE',
+                icon: 'fa-solid fa-folder-open',
+                items: [
+                    { label: '主磁盘 (Main Disk)', icon: 'fa-solid fa-hard-drive' },
+                    { label: '纠删码卷 (EC Volume)', icon: 'fa-solid fa-server' },
+                    { label: '加密区 (Secure)', icon: 'fa-solid fa-lock' },
+                    { label: '回收站 (Trash)', icon: 'fa-solid fa-trash' }
+                ]
+            },
+            {
+                id: 'map',
+                label: 'NAVIGATION',
+                icon: 'fa-solid fa-location-dot',
+                items: [
+                    { label: '系统概览 (System)', icon: 'fa-solid fa-chart-pie' },
+                    { label: '网络监控 (Network)', icon: 'fa-solid fa-wifi' },
+                    { label: '任务管理器 (Tasks)', icon: 'fa-solid fa-list-check' }
+                ]
+            },
+            {
+                id: 'settings',
+                label: 'OPTIONS',
+                icon: 'fa-solid fa-gear',
+                items: [
+                    { label: '界面设置 (Display)', icon: 'fa-solid fa-desktop' },
+                    { label: '声音 (Audio)', icon: 'fa-solid fa-volume-high' },
+                    { label: '登出 (Logout)', icon: 'fa-solid fa-right-from-bracket' }
+                ]
+            }
+        ];
+
+        const toggleMenu = () => {
+            isMenuOpen.value = !isMenuOpen.value;
+            if (isMenuOpen.value) {
+                // 播放音效逻辑可以在这里加
+                console.log("Menu Opened - SWISH!");
+            }
+        };
+
+        const handleGlobalClick = () => {
+            // 点击空白处关闭菜单
+            if (isMenuOpen.value) {
+                isMenuOpen.value = false;
+            }
+        };
+
+        const getCurrentSubItems = () => {
+            const category = menuData.find(c => c.id === activeCategory.value);
+            return category ? category.items : [];
+        };
+
+        const getCurrentCategoryLabel = () => {
+            const category = menuData.find(c => c.id === activeCategory.value);
+            return category ? category.label : '';
+        };
+
+        const handleAction = (action) => {
+            alert(`哈吉米sama，您点击了: ${action}`);
+            // 在这里连接您的实际逻辑
+        };
+
+        return {
+            isMenuOpen,
+            activeCategory,
+            menuData,
+            toggleMenu,
+            handleGlobalClick,
+            getCurrentSubItems,
+            getCurrentCategoryLabel,
+            handleAction,
+            username
+        };
+    }
+}).mount('#app');
+</script>
+
+</body>
+</html>

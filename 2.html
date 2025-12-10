@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Souls: Boss Fight</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&display=swap');
+
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; user-select: none; }
+
+        /* 游戏舞台 */
+        #game-stage {
+            width: 800px; height: 500px;
+            background: radial-gradient(circle at center, #2a2a2a 0%, #000 100%);
+            border: 2px solid #444;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        }
+
+        /* 角色通用 */
+        .character {
+            position: absolute;
+            transition: transform 0.1s;
+            will-change: left, top;
+        }
+
+        /* 玩家 */
+        .player {
+            width: 40px; height: 60px;
+            background: #3b82f6; /* 蓝色 */
+            box-shadow: 0 0 10px #3b82f6;
+            border-radius: 4px;
+        }
+        .player.rolling { opacity: 0.5; background: #93c5fd; transform: scaleY(0.6) translateY(20px); }
+        .player.hit { background: #ef4444; animation: shake 0.2s; }
+
+        /* Boss */
+        .boss {
+            width: 80px; height: 100px;
+            background: #b91c1c; /* 红色 */
+            box-shadow: 0 0 20px #b91c1c;
+            border-radius: 8px;
+        }
+        .boss.charging { background: #fca5a5; box-shadow: 0 0 30px #fca5a5; animation: pulse 0.2s infinite; }
+        .boss.attacking { transform: scale(1.2); }
+
+        /* UI 条 */
+        .bar-container { background: #333; border: 1px solid #555; height: 10px; border-radius: 2px; overflow: hidden; }
+        .bar-fill { height: 100%; transition: width 0.1s linear; }
+        .hp-fill { background: #dc2626; }
+        .stamina-fill { background: #22c55e; }
+        .boss-hp-fill { background: #7f1d1d; transition: width 0.2s ease-out; }
+
+        /* 伤害数字 */
+        .damage-text {
+            position: absolute;
+            color: #fff;
+            font-weight: bold;
+            font-size: 20px;
+            pointer-events: none;
+            animation: floatUp 0.8s forwards;
+            text-shadow: 0 0 5px red;
+        }
+
+        /* 特效 */
+        .effect-area {
+            position: absolute;
+            background: rgba(255, 0, 0, 0.3);
+            border: 2px solid rgba(255, 0, 0, 0.6);
+            pointer-events: none;
+        }
+
+        /* 死亡屏幕 */
+        .you-died {
+            font-family: 'Cinzel', serif;
+            color: #880000;
+            text-shadow: 0 0 20px #ff0000;
+            font-size: 80px;
+            opacity: 0;
+            transform: scale(1.2);
+            transition: all 2s ease-in;
+        }
+        .you-died.show { opacity: 1; transform: scale(1); }
+
+        @keyframes floatUp { to { transform: translateY(-50px); opacity: 0; } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body class="flex items-center justify-center h-screen bg-black text-white">
+
+<div id="app" class="relative">
+
+    <div id="game-stage" class="relative">
+
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10">
+            <div class="w-64 h-64 border-4 border-white rounded-full"></div>
+        </div>
+
+        <div class="character player"
+             :style="{ left: p.x + 'px', top: p.y + 'px' }"
+             :class="{ 'rolling': p.isRolling, 'hit': p.isHit }">
+            <div v-if="p.isAttacking"
+                 class="absolute w-16 h-24 bg-white opacity-80 -top-8 left-full origin-bottom-left transform rotate-45"></div>
+        </div>
+
+        <div class="character boss"
+             :style="{ left: b.x + 'px', top: b.y + 'px' }"
+             :class="{ 'charging': b.state === 'charging', 'attacking': b.state === 'attacking' }">
+        </div>
+
+        <div v-if="b.attackArea"
+             class="effect-area"
+             :style="{
+                 left: b.attackArea.x + 'px',
+                 top: b.attackArea.y + 'px',
+                 width: b.attackArea.w + 'px',
+                 height: b.attackArea.h + 'px'
+             }">
+        </div>
+
+        <div v-for="d in damageNumbers" :key="d.id"
+             class="damage-text"
+             :style="{ left: d.x + 'px', top: d.y + 'px' }">
+            {{ d.val }}
+        </div>
+    </div>
+
+    <div class="absolute top-4 left-4 w-64 space-y-2">
+        <div class="bar-container border-gray-400"><div class="bar-fill hp-fill" :style="{ width: (p.hp / p.maxHp * 100) + '%' }"></div></div>
+        <div class="bar-container border-green-900"><div class="bar-fill stamina-fill" :style="{ width: (p.stamina / p.maxStamina * 100) + '%' }"></div></div>
+    </div>
+
+    <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-[600px]">
+        <div class="text-center text-xl font-bold text-red-500 mb-1 tracking-widest font-serif">THE RED GLITCH (红色故障体)</div>
+        <div class="bar-container h-4 border-red-900 bg-black"><div class="bar-fill boss-hp-fill" :style="{ width: (b.hp / b.maxHp * 100) + '%' }"></div></div>
+    </div>
+
+    <div class="absolute top-4 right-4 text-xs text-gray-400 text-right font-mono">
+        <p>[W/A/S/D] 移动</p>
+        <p>[SPACE] 翻滚 (无敌帧)</p>
+        <p>[J] 攻击 (消耗精力)</p>
+    </div>
+
+    <div v-if="gameOver" class="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center">
+        <div class="you-died" :class="{ 'show': showDeathText }">YOU DIED</div>
+        <div v-if="showDeathText" class="mt-8 text-gray-400 animate-pulse cursor-pointer hover:text-white" @click="restartGame">
+            点击重试 (Try Again)
+        </div>
+    </div>
+
+    <div v-if="victory" class="absolute inset-0 bg-white/20 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
+        <div class="text-6xl font-bold text-yellow-400 shadow-lg drop-shadow-lg">ENEMY FELLED</div>
+        <div class="mt-8 text-white cursor-pointer bg-yellow-600 px-6 py-2 rounded hover:bg-yellow-500" @click="restartGame">
+            再次挑战
+        </div>
+    </div>
+
+</div>
+
+<script>
+const { createApp, ref, onMounted, onUnmounted } = Vue;
+
+createApp({
+    setup() {
+        // 游戏循环 ID
+        let loopId;
+
+        // 状态
+        const gameOver = ref(false);
+        const victory = ref(false);
+        const showDeathText = ref(false);
+        const damageNumbers = ref([]);
+
+        // 玩家状态
+        const p = ref({
+            x: 100, y: 220, w: 40, h: 60,
+            hp: 100, maxHp: 100,
+            stamina: 100, maxStamina: 100,
+            speed: 4,
+            isRolling: false,
+            isAttacking: false,
+            isHit: false,
+            invincible: false, // 无敌状态
+            direction: 1 // 1右 -1左
+        });
+
+        // Boss 状态
+        const b = ref({
+            x: 600, y: 200, w: 80, h: 100,
+            hp: 500, maxHp: 500,
+            state: 'idle', // idle, charging, attacking, cooldown
+            attackArea: null,
+            timer: 0
+        });
+
+        // 按键状态
+        const keys = {};
+
+        // 核心：输入监听
+        const handleKey = (e, isDown) => {
+            keys[e.code] = isDown;
+            if (isDown && e.code === 'Space') tryRoll();
+            if (isDown && e.code === 'KeyJ') tryAttack();
+        };
+
+        // 动作：翻滚
+        const tryRoll = () => {
+            if (p.value.stamina < 20 || p.value.isRolling || p.value.isAttacking || gameOver.value) return;
+
+            p.value.stamina -= 20;
+            p.value.isRolling = true;
+            p.value.invincible = true; // 开启无敌帧
+
+            // 翻滚位移
+            const rollDir = keys['KeyA'] ? -1 : (keys['KeyD'] ? 1 : p.value.direction);
+            const rollSpeed = 10;
+            let frame = 0;
+
+            const rollInterval = setInterval(() => {
+                frame++;
+                p.value.x += rollDir * rollSpeed;
+                boundaryCheck();
+
+                if (frame > 15) { // 翻滚持续约 250ms
+                    clearInterval(rollInterval);
+                    p.value.isRolling = false;
+                    p.value.invincible = false; // 结束无敌帧
+                }
+            }, 16);
+        };
+
+        // 动作：攻击
+        const tryAttack = () => {
+            if (p.value.stamina < 15 || p.value.isRolling || p.value.isAttacking || gameOver.value) return;
+
+            p.value.stamina -= 15;
+            p.value.isAttacking = true;
+
+            // 攻击判定延迟 (模拟前摇)
+            setTimeout(() => {
+                // 简单的距离判定
+                const range = 100; // 攻击距离
+                const centerP = p.value.x + p.value.w/2;
+                const centerB = b.value.x + b.value.w/2;
+                const dist = Math.abs(centerP - centerB);
+
+                // Y轴判定
+                const yDiff = Math.abs(p.value.y - b.value.y);
+
+                if (dist < range && yDiff < 80) {
+                    // 命中 Boss
+                    const dmg = Math.floor(Math.random() * 20) + 30;
+                    b.value.hp -= dmg;
+                    showDamage(dmg, b.value.x, b.value.y);
+
+                    if (b.value.hp <= 0) winGame();
+                }
+
+                setTimeout(() => { p.value.isAttacking = false; }, 200); // 后摇
+            }, 100);
+        };
+
+        // Boss AI 逻辑
+        const updateBoss = () => {
+            if (victory.value) return;
+            b.value.timer++;
+
+            // 简单的状态机
+            if (b.value.state === 'idle') {
+                // 缓慢向玩家移动
+                const dx = p.value.x - b.value.x;
+                const dy = p.value.y - b.value.y;
+                b.value.x += dx > 0 ? 1 : -1;
+                b.value.y += dy > 0 ? 1 : -1;
+
+                // 随机发动攻击
+                if (b.value.timer > 60 && Math.random() < 0.05) {
+                    b.value.state = 'charging';
+                    b.value.timer = 0;
+                }
+            } else if (b.value.state === 'charging') {
+                // 蓄力 (显示红框)
+                if (!b.value.attackArea) {
+                    b.value.attackArea = {
+                        x: b.value.x - 50,
+                        y: b.value.y - 50,
+                        w: 180, h: 200
+                    };
+                }
+
+                if (b.value.timer > 40) { // 蓄力时间
+                    b.value.state = 'attacking';
+                    b.value.timer = 0;
+                    // 攻击判定
+                    checkPlayerHit(b.value.attackArea);
+                }
+            } else if (b.value.state === 'attacking') {
+                // 攻击持续瞬间
+                if (b.value.timer > 10) {
+                    b.value.state = 'cooldown';
+                    b.value.timer = 0;
+                    b.value.attackArea = null;
+                }
+            } else if (b.value.state === 'cooldown') {
+                // 僵直
+                if (b.value.timer > 60) {
+                    b.value.state = 'idle';
+                    b.value.timer = 0;
+                }
+            }
+
+            // Boss 边界限制
+            if(b.value.x < 0) b.value.x = 0;
+            if(b.value.x > 720) b.value.x = 720;
+            if(b.value.y < 0) b.value.y = 0;
+            if(b.value.y > 400) b.value.y = 400;
+        };
+
+        // 判定玩家受伤
+        const checkPlayerHit = (area) => {
+            if (p.value.invincible) {
+                showDamage("DODGE!", p.value.x, p.value.y - 20); // 闪避成功
+                // 回复少量精力奖励
+                p.value.stamina = Math.min(p.value.stamina + 10, p.value.maxStamina);
+                return;
+            }
+
+            const px = p.value.x + p.value.w/2;
+            const py = p.value.y + p.value.h/2;
+
+            if (px > area.x && px < area.x + area.w &&
+                py > area.y && py < area.y + area.h) {
+
+                // 受到伤害
+                const dmg = 40;
+                p.value.hp -= dmg;
+                p.value.isHit = true;
+                setTimeout(() => p.value.isHit = false, 200);
+
+                if (p.value.hp <= 0) {
+                    loseGame();
+                }
+            }
+        };
+
+        // 游戏主循环
+        const gameLoop = () => {
+            if (gameOver.value || victory.value) return;
+
+            // 1. 玩家移动
+            if (!p.value.isRolling && !p.value.isAttacking) {
+                if (keys['KeyW']) p.value.y -= p.value.speed;
+                if (keys['KeyS']) p.value.y += p.value.speed;
+                if (keys['KeyA']) { p.value.x -= p.value.speed; p.value.direction = -1; }
+                if (keys['KeyD']) { p.value.x += p.value.speed; p.value.direction = 1; }
+                boundaryCheck();
+            }
+
+            // 2. 精力回复
+            if (!p.value.isRolling && !p.value.isAttacking && !keys['Space'] && p.value.stamina < p.value.maxStamina) {
+                p.value.stamina += 0.5;
+            }
+
+            // 3. Boss 逻辑
+            updateBoss();
+
+            loopId = requestAnimationFrame(gameLoop);
+        };
+
+        const boundaryCheck = () => {
+            if (p.value.x < 0) p.value.x = 0;
+            if (p.value.x > 760) p.value.x = 760;
+            if (p.value.y < 0) p.value.y = 0;
+            if (p.value.y > 440) p.value.y = 440;
+        };
+
+        const showDamage = (val, x, y) => {
+            const id = Date.now();
+            damageNumbers.value.push({ id, val, x: x + 20, y });
+            setTimeout(() => {
+                damageNumbers.value = damageNumbers.value.filter(d => d.id !== id);
+            }, 800);
+        };
+
+        const loseGame = () => {
+            gameOver.value = true;
+            cancelAnimationFrame(loopId);
+            setTimeout(() => showDeathText.value = true, 500);
+        };
+
+        const winGame = () => {
+            victory.value = true;
+            cancelAnimationFrame(loopId);
+        };
+
+        const restartGame = () => {
+            gameOver.value = false;
+            victory.value = false;
+            showDeathText.value = false;
+            p.value.hp = 100;
+            p.value.stamina = 100;
+            p.value.x = 100;
+            b.value.hp = 500;
+            b.value.state = 'idle';
+            b.value.x = 600;
+            gameLoop();
+        };
+
+        onMounted(() => {
+            window.addEventListener('keydown', e => handleKey(e, true));
+            window.addEventListener('keyup', e => handleKey(e, false));
+            gameLoop();
+        });
+
+        onUnmounted(() => {
+            cancelAnimationFrame(loopId);
+        });
+
+        return { p, b, damageNumbers, gameOver, victory, showDeathText, restartGame };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
